@@ -8,7 +8,9 @@ name: Build unsigned IPA
 
 jobs:
   build:
-    runs-on: macos-14
+    # Needs Xcode 16: the current XcodeGen emits objectVersion 77, which the
+    # Xcode 15 toolchain on macos-14 refuses to open ("future project file format").
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
@@ -26,9 +28,22 @@ jobs:
 
       - name: Generate Xcode project
         run: |
+          set -e
           xcodegen --version
           xcodegen generate
           ls -la
+
+          # Safety net: XcodeGen may emit a project format newer than the
+          # toolchain on this image. Downgrade it if so.
+          PBX=SylvieGame.xcodeproj/project.pbxproj
+          OBJ=$(grep -m1 'objectVersion' "$PBX" | tr -dc '0-9')
+          XMAJ=$(xcodebuild -version | head -1 | sed 's/Xcode //' | cut -d. -f1)
+          echo "objectVersion=$OBJ   Xcode major=$XMAJ"
+          if [ "$XMAJ" -lt 16 ] && [ "$OBJ" -gt 60 ]; then
+            sed -i '' "s/objectVersion = $OBJ;/objectVersion = 56;/" "$PBX"
+            echo "-> downgraded objectVersion to 56 for Xcode $XMAJ"
+            grep -m1 'objectVersion' "$PBX"
+          fi
 
       - name: Build (unsigned)
         run: |
