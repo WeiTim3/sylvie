@@ -79,6 +79,31 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         config.userContentController.addUserScript(
             WKUserScript(source: probe, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
+        // TyranoScript's fitBaseSize() centres .tyrano_base by setting `left`,
+        // then calls window.scrollTo(width, height) with the SAME offset --
+        // double-shifting the picture to the right. It only shows up in
+        // landscape (in portrait that offset is 0). Block horizontal scrolling
+        // and pin scrollTo's x to 0 so the centring survives.
+        let layoutFix = """
+        (function () {
+          var css = 'html,body{overflow-x:hidden !important;max-width:100%;}';
+          function inject() {
+            var s = document.createElement('style');
+            s.textContent = css;
+            (document.head || document.documentElement).appendChild(s);
+          }
+          if (document.head) { inject(); } else { document.addEventListener('DOMContentLoaded', inject); }
+
+          var nativeScrollTo = window.scrollTo ? window.scrollTo.bind(window) : null;
+          window.scrollTo = function (a, b) {
+            if (a !== null && typeof a === 'object') { return nativeScrollTo ? nativeScrollTo(a) : undefined; }
+            return nativeScrollTo ? nativeScrollTo(0, b || 0) : undefined;
+          };
+        })();
+        """
+        config.userContentController.addUserScript(
+            WKUserScript(source: layoutFix, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+
         let webView = WKWebView(frame: view.bounds, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
