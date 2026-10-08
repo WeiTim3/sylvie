@@ -120,14 +120,23 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         text.isSelectable = true
         text.translatesAutoresizingMaskIntoConstraints = false
 
+        let close = UIButton(type: .system)
+        close.setTitle("进入游戏", for: .normal)
+        close.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        close.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+
         let reload = UIButton(type: .system)
         reload.setTitle("重新加载", for: .normal)
-        reload.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        reload.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
         reload.addTarget(self, action: #selector(reloadTapped), for: .touchUpInside)
-        reload.translatesAutoresizingMaskIntoConstraints = false
+
+        let buttons = UIStackView(arrangedSubviews: [close, reload])
+        buttons.axis = .horizontal
+        buttons.spacing = 32
+        buttons.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(text)
-        container.addSubview(reload)
+        container.addSubview(buttons)
         view.addSubview(container)
 
         NSLayoutConstraint.activate([
@@ -138,13 +147,17 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             text.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
             text.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
             text.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            reload.topAnchor.constraint(equalTo: text.bottomAnchor, constant: 6),
-            reload.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            reload.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+            buttons.topAnchor.constraint(equalTo: text.bottomAnchor, constant: 6),
+            buttons.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            buttons.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
         ])
 
         diagView = container
         diagText = text
+    }
+
+    @objc private func closeTapped() {
+        diagView.isHidden = true
     }
 
     @objc private func reloadTapped() {
@@ -244,8 +257,9 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             let raw = (result as? String) ?? "\(result ?? "nil")"
             report += raw + "\n\n路径尝试:\n" + self.triedPaths.joined(separator: "\n")
 
+            // Real failures only. A missing decorative image or a rejected
+            // media-autoplay promise must not cover a working game.
             let healthy = raw.contains("\"tyrano\": true") && !raw.contains("\"baseChildren\": 0")
-                && !raw.contains("\"JSERR") && !raw.contains("\"LOAD-FAIL")
             if healthy {
                 NSLog("[SylvieGame] boot OK: %@", raw)
                 return
