@@ -44,12 +44,45 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         view.backgroundColor = .black
         setUpWebView()
         setUpDiagnostics()
+        observeAppState()
         startGame()
     }
 
     // Landscape means the home indicator sits right under the message box;
     // let it auto-dim so it doesn't sit on top of the text.
     override var prefersHomeIndicatorAutoHidden: Bool { return true }
+
+    // MARK: - Background audio
+
+    // WebKit's media processes keep the audio session alive even after the app
+    // is suspended, so BGM keeps playing with the app in the background.
+    // setAllMediaPlaybackSuspended is the public, supported way to stop it.
+    private func observeAppState() {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(suspendMedia),
+                           name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.addObserver(self, selector: #selector(resumeMedia),
+                           name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @objc private func suspendMedia() {
+        if #available(iOS 14.0, *) {
+            webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+        }
+        // Belt and braces: TyranoScript keeps its Audio objects outside the DOM,
+        // so also mute every element we can reach.
+        webView.evaluateJavaScript(
+            "document.querySelectorAll('audio,video').forEach(function(e){try{e.pause()}catch(x){}});",
+            completionHandler: nil)
+        NSLog("[SylvieGame] media suspended (background)")
+    }
+
+    @objc private func resumeMedia() {
+        if #available(iOS 14.0, *) {
+            webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
+        }
+        NSLog("[SylvieGame] media resumed (foreground)")
+    }
 
     private func setUpWebView() {
         let config = WKWebViewConfiguration()
