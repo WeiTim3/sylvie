@@ -34,8 +34,8 @@ targets:
       properties:
         CFBundleDisplayName: 希露薇
         CFBundleName: SylvieGame
-        CFBundleShortVersionString: "1.8"
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: "1.9"
+        CFBundleVersion: "10"
         LSRequiresIPhoneOS: true
         UIRequiresFullScreen: true
         UIStatusBarHidden: true

@@ -165,6 +165,47 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         config.userContentController.addUserScript(
             WKUserScript(source: layoutFix, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
+        // TyranoScript gates two things behind a tap, purely because mobile
+        // browsers block autoplay: the logo movie (`click.movie`) and the first
+        // BGM (`click.bgm`). A native WKWebView with
+        // mediaTypesRequiringUserActionForPlayback = [] has no such restriction,
+        // so the player just sees a black screen until they poke it. Fire those
+        // two specific handlers for them -- directly, so that ordinary
+        // (unnamespaced) click handlers, which advance dialogue, are untouched.
+        let autoTap = """
+        (function () {
+          function fireNamespaced(el, type, ns) {
+            if (!window.jQuery || !jQuery._data) { return; }
+            var events = jQuery._data(el, 'events');
+            var list = events && events[type];
+            if (!list || !list.length) { return; }
+            var snapshot = list.slice();
+            for (var i = 0; i < snapshot.length; i++) {
+              var h = snapshot[i];
+              if (!h || h.namespace !== ns || typeof h.handler !== 'function') { continue; }
+              try {
+                h.handler.call(el, {
+                  type: type, target: el, currentTarget: el,
+                  preventDefault: function () {}, stopPropagation: function () {},
+                  stopImmediatePropagation: function () {}
+                });
+              } catch (e) {
+                if (window.__errs) { window.__errs.push('autotap.' + ns + ': ' + e.message); }
+              }
+            }
+          }
+
+          setInterval(function () {
+            var el = document.querySelector('.tyrano_base');
+            if (!el) { return; }
+            fireNamespaced(el, 'click', 'movie');
+            fireNamespaced(el, 'click', 'bgm');
+          }, 250);
+        })();
+        """
+        config.userContentController.addUserScript(
+            WKUserScript(source: autoTap, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+
         let webView = WKWebView(frame: view.bounds, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
