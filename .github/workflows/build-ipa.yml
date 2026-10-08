@@ -1,0 +1,69 @@
+name: Build unsigned IPA
+
+# quoted so YAML 1.1 parsers don't read it as boolean true
+"on":
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          sw_vers
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          xcodegen --version
+          xcodegen generate
+          ls -la
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SylvieGame.xcodeproj \
+            -scheme SylvieGame \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          set -e
+          APP="build/Build/Products/Release-iphoneos/SylvieGame.app"
+          ls -la "$APP"
+          rm -rf Payload SylvieGame-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          rm -rf Payload/SylvieGame.app/_CodeSignature
+          zip -qry SylvieGame-unsigned.ipa Payload
+          echo "--- contents ---"
+          unzip -l SylvieGame-unsigned.ipa | head -20
+          ls -lh SylvieGame-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SylvieGame-unsigned-ipa
+          path: SylvieGame-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
