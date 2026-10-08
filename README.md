@@ -1,124 +1,113 @@
-# SylvieGame — 把「希露薇の交配計劃」装成一个真正的 iOS App
+# SylvieGame
 
-这是一个**壳工程**：一个极简的 WKWebView 容器 + 一条 GitHub Actions 流水线。
-推到 GitHub 后，云端 macOS runner 会自动编译出**未签名 `.ipa`**，
-再用 **TrollStore** 装到越狱设备上 —— 全程不需要 Mac、不需要 Apple ID、不需要签名。
+把 **【希露薇の交配計劃MOD】ver7.6.9**（原为 Android APK，TyranoScript 引擎）
+变成一个真正能用的 iPhone 游戏。
 
-## 为什么值得折腾
+游戏本体是纯 HTML5，所以这里做的事情是：**一个极小的原生壳 + 一套让 TyranoScript
+在 WKWebView 里正常工作的兼容补丁**。壳只有 4 个 Swift 文件、零第三方依赖。
 
-| | Minis 内置浏览器（现在） | 这个 App |
-|---|---|---|
-| BGM / 音效 | ❌ WebView 禁解码 | ✅ |
-| 过场视频 | ❌ | ✅ |
-| 转场动画 | ❌ 帧时钟停摆 | ✅ |
-| 服务依赖 | 要一直开着 `serve.py` | 不需要 |
-| 桌面图标 | ❌ | ✅ |
-| 离线 | ❌ | ✅ |
-
-关键就是这两行 WebView 配置，正是内置浏览器给不了的：
-
-```swift
-config.mediaTypesRequiringUserActionForPlayback = []   // 媒体不再被拦
-config.allowsInlineMediaPlayback = true
+```
+┌──────────────────────────────────────────────┐
+│  SylvieGame.app            (221 KB 二进制)    │
+│   ├ WKWebView  ──  TyranoScript 引擎 ── 剧本  │
+│   ├ LocalServer  本地 HTTP 服务 (127.0.0.1)   │
+│   └ Splash / 手势 / 触觉 / 诊断                │
+└──────────────────────────────────────────────┘
+              素材 (1.4 GB) 放在 Documents/www
 ```
 
 ---
 
-## 一、拿到 IPA（约 5 分钟）
+## 目录
 
-1. **建仓库**：github.com → New repository → 名字随便（如 `sylvie`）→
-   选 **Public**（公开仓库的 macOS runner 免费）→ Create。
-
-2. **上传本文件夹里的全部内容**（不是外层目录，是里面的文件）：
-   ```
-   project.yml
-   Sources/
-   Resources/
-   .github/workflows/build-ipa.yml
-   ```
-   ⚠️ `.github/` 是隐藏目录，用网页版拖拽上传时**要把 `.github` 一起拖进去**，
-   否则 Actions 不会触发。用 git 命令行最省事：
-   ```sh
-   cd ios
-   git init && git add -A && git commit -m "init"
-   git branch -M main
-   git remote add origin https://github.com/<你的用户名>/sylvie.git
-   git push -u origin main
-   ```
-
-3. **等编译**：仓库页 → **Actions** → 点进最新那次 run。
-   大约 2–4 分钟（首次要装 XcodeGen，稍慢）。
-
-4. **下载 IPA**：run 成功后，页面底部 **Artifacts** → 下载
-   `SylvieGame-unsigned-ipa`（是个 zip，解压得到 `SylvieGame-unsigned.ipa`）。
-
-## 二、装到手机上
-
-越狱设备有好几种办法，任选：
-
-- **TrollStore**（推荐）：把 `.ipa` 存到「文件」App，用 TrollStore 打开它 → Install
-- **AppSync Unified + Filza**：装了 AppSync 后，Filza 里直接点 `.ipa` 安装
-- **`ipainstaller`**：`ipainstaller /path/to/SylvieGame-unsigned.ipa`
-
-装完桌面会出现图标「**希露薇**」。
-
-## 三、把游戏素材放进去
-
-App 会按这个顺序找 `index.html`：
-
-1. `Documents/www/index.html` ← 正常情况用这个
-2. `/var/mobile/Media/ver769/www/index.html` ← 越狱专用捷径
-3. App 包内的 `www/`（本工程没打包素材）
-
-### 方法 A：文件 App（不用越狱工具）
-
-App 开了 `UIFileSharingEnabled`，所以「文件」App 里能直接看到它：
-
-```
-文件 App → 我的 iPhone → 希露薇 → 放一个 www 文件夹进去
-```
-
-### 方法 B：Filza（推荐，13000 个文件用文件 App 拖会很慢）
-
-素材现在在 Minis 的容器里，用 Filza 复制：
-
-```
-源：/var/mobile/Containers/Data/Application/6FD95196-7E4F-4FC1-8080-A19B920965B8/
-     Documents/alpine-rootfs/data/var/minis/workspace/ver769/ver769/assets/www
-
-到：/var/mobile/Media/ver769/www
-```
-
-（`6FD95196-…` 这个 UUID 在本机有效；如果翻不到，就在 Minis 容器目录里
-搜 `alpine-rootfs/data/var/minis/workspace/ver769`。）
-
-放好后启动 App 即可。**注意**：`www` 里应该直接看到 `index.html`、
-`tyrano/`、`data/`、`wkwrap-shim.js`。
-
----
-
-## 已包含的修复
-
-这个 `www` 是打好补丁的版本，原包的几个坑都修过了（详见 `../PLAY_NOTES.md`）：
-
-1. `wkwrap-shim.js` — 帧时钟停摆时兜底（真机 Safari/App 里会自动关闭，无副作用）
-2. 剧本 35 处 `.webm` → `.mp4`
-3. `kag.tag_audio.js` — Safari 的 `.ogg`→`.m4a` 改成 `.mp3`，并给音频 `play` 事件加兜底
-4. `kag.tag_ext.js` — 影片加载失败兜底
-
-## 故障排查
-
-| 现象 | 原因 |
+| 路径 | 作用 |
 |---|---|
-| Actions 里没有 run | `.github/workflows/` 没上传上去（隐藏目录） |
-| `xcodegen: command not found` | 这步失败通常是网络问题，重跑一次 |
-| 编译报 `No such module` | 不应该发生，本工程零第三方依赖 |
-| 装好后打开是「还没放游戏文件」 | `www` 位置不对，检查上面三个候选路径 |
-| 白屏/黑屏 | 看 Xcode Console 或 `idevicesyslog` 里的 `[SylvieGame]` 日志 |
-| 素材太大复制慢 | 13k 文件 / 1.4 GB，Filza 复制需要几分钟 |
+| `Sources/` | 壳（4 个 Swift 文件） |
+| `Resources/` | 图标、启动图、启动背景色 |
+| `patches/apply_www.py` | **把原版 APK 的 www 修成能在 WKWebView 跑** |
+| `tools/serve.py` | 带 Range 支持的本地服务（浏览器调试用） |
+| `tools/bake.py` | 把素材烘进 IPA，做自包含版 |
+| `docs/IOS_PORTING.md` | 完整移植笔记（每个坑的根因与修法） |
+| `docs/PACKAGE_ANALYSIS.md` | 原始 APK 内容分析 |
+| `docs/WEB_PORT.md` | 备选方案：不装 App，用浏览器玩 |
+| `.github/workflows/build-ipa.yml` | 云端编译出未签名 IPA |
 
-## 想改成内置本地 HTTP 服务？
+---
 
-如果 `file://` 的 XHR 在某个 iOS 版本上被拦，把 `GameViewController` 换成
-启动一个支持 Range 的本地 HTTP 服务、再 `load(URLRequest("http://127.0.0.1:PORT/"))`
-即可（参考外层 `serve.py` 的逻辑）。**先试 file:// 版本**，多数情况够用。
+## 编译与安装
+
+```sh
+git push          # 推到 main 即触发 GitHub Actions
+```
+
+约 2 分钟产出未签名 `.ipa`（Actions → 最新 run → Artifacts）。装法：
+
+- **TrollStore**（推荐，iOS 14.0–16.6.1）：`.ipa` 存到「文件」→ TrollStore 打开 → Install
+- 或越狱 + **AppSync Unified** + Filza 直接点 `.ipa`
+
+> runner 必须是 `macos-15`：当前 XcodeGen 生成 `objectVersion 77`（Xcode 16 格式），
+> `macos-14` 的 Xcode 15 打不开。
+
+## 放素材
+
+App 按顺序找 `index.html`：
+
+```
+1. <App Documents>/www              ← 常用
+2. /var/mobile/Media/ver769/www      ← 越狱捷径
+3. <App Bundle>/www                  ← 自包含版
+```
+
+`www` 里应直接看到 `index.html` / `tyrano/` / `data/`。
+
+**素材必须先过一遍补丁**，否则黑屏：
+
+```sh
+python3 patches/apply_www.py /path/to/assets/www
+```
+
+---
+
+## 操作
+
+| 手势 | 行为 |
+|---|---|
+| 单击 | 推进对话（引擎自带） |
+| **长按** | 快进（松手停止） |
+| **双指点击** | 打开游戏菜单（存档 / 读档 / 设置 / 回想） |
+| **三指点击** | 自动播放开关 |
+
+切到后台自动静音，回前台继续。
+
+---
+
+## 这套补丁在修什么
+
+| # | 症状 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | 黑屏，无任何提示 | TyranoScript 用 `alert()` 报错，但没设 `WKUIDelegate`，弹窗被静默丢弃 | 实现 `runJavaScriptAlertPanelWithMessage` |
+| 2 | `file not found: ./data/system/Config.tjs` | `tyrano/libs.js` 的 `$.loadText` 走 XHR，**WKWebView 禁止 `file://` 页面发 XHR** | 壳内嵌 HTTP 服务，改走 `http://127.0.0.1:<随机端口>` |
+| 3 | 横屏画面贴右、左侧全黑 | `tyrano.base.js` 先设居中 `left`，再 `window.scrollTo(width, height)` **滚了同样的距离** → 双重偏移（竖屏时该值为 0，所以原版没暴露） | 引擎补丁 + 壳侧每 250ms 清 `scrollLeft` |
+| 4 | 竖屏浪费 69% 屏幕 | 游戏是 1350×900（3:2） | 强制横屏，按高度缩放占宽 69% |
+| 5 | 打开要点了才有画面 | TyranoScript 给移动端加的 `click.movie` / `click.bgm` 门槛 | 壳直接调用那两个带命名空间的 handler（不动普通 click，避免跳剧情） |
+| 6 | 剧本引用 `.webm`，包里只有 `.mp4` | MOD 打包时没同步改剧本 | 全量替换（35 处） |
+| 7 | 音频在 Safari 下被映射成 `.m4a`，包里只有 `.mp3` | 引擎的浏览器嗅探逻辑 | 改成映射 `.mp3` |
+| 8 | 切后台 BGM 还在响 | WebKit 的媒体进程独立占用音频会话 | iOS 15+ `setAllMediaPlaybackSuspended` |
+
+**为什么不用自定义 `WKURLSchemeHandler`**：AVFoundation 不认自定义 scheme，
+这样音视频会全挂。必须走真 HTTP —— 这也是 `LocalServer.swift` 存在的原因（约 300 行，POSIX socket）。
+
+---
+
+## 已知无害噪音
+
+| 现象 | 说明 |
+|---|---|
+| `LOAD-FAIL .../images/system/button_menu.png` | 这文件**本来就不在包里**，MOD 作者删了但 `kag.js` 仍引用 |
+| `REJECT: The operation is not supported.` | 音视频 `play()` 的 promise 拒绝 |
+| 上下/左右黑边 | 3:2 的游戏放在 19.5:9 的屏幕上，信箱式留黑是正确的（强行填满要裁掉 65% 宽度） |
+
+## 授权
+
+壳代码是自用的，随便改。**游戏的剧本、美术、音乐版权属于原作者 Ray-Kbys
+及 MOD 制作者「雙態協會×希露薇Fans團」，不可再分发。**
