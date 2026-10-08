@@ -1,0 +1,60 @@
+name: SylvieGame
+
+options:
+  bundleIdPrefix: com.local
+  deploymentTarget:
+    iOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # Unsigned build: TrollStore / AppSync will sign it on-device.
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+
+targets:
+  SylvieGame:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.sylviegame
+        PRODUCT_NAME: SylvieGame
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: "NO"
+        ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: 希露薇
+        CFBundleName: SylvieGame
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UILaunchScreen: {}
+        # Lets you drop the game's www folder in via the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+
+schemes:
+  SylvieGame:
+    build:
+      targets:
+        SylvieGame: all
+    run:
+      config: Debug
+    archive:
+      config: Release
