@@ -19,11 +19,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
-    // Portrait only, regardless of what Info.plist says.
+    // Landscape only: the game is 1350x900 (3:2), so a landscape window uses
+    // ~69% of the screen width instead of ~31% of the height in portrait.
     func application(
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
-        return .portrait
+        return .landscape
     }
 }

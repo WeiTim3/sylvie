@@ -47,6 +47,10 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         startGame()
     }
 
+    // Landscape means the home indicator sits right under the message box;
+    // let it auto-dim so it doesn't sit on top of the text.
+    override var prefersHomeIndicatorAutoHidden: Bool { return true }
+
     private func setUpWebView() {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
