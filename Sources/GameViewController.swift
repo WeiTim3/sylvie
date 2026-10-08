@@ -66,7 +66,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     }
 
     @objc private func suspendMedia() {
-        if #available(iOS 14.0, *) {
+        if #available(iOS 15.0, *) {
             webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
         }
         // Belt and braces: TyranoScript keeps its Audio objects outside the DOM,
@@ -78,7 +78,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     }
 
     @objc private func resumeMedia() {
-        if #available(iOS 14.0, *) {
+        if #available(iOS 15.0, *) {
             webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
         }
         NSLog("[SylvieGame] media resumed (foreground)")
