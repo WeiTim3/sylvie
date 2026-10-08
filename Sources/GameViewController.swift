@@ -86,6 +86,8 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         // and pin scrollTo's x to 0 so the centring survives.
         let layoutFix = """
         (function () {
+          window.__stPatched = true;
+
           var css = 'html,body{overflow-x:hidden !important;max-width:100%;}';
           function inject() {
             var s = document.createElement('style');
@@ -94,11 +96,37 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
           }
           if (document.head) { inject(); } else { document.addEventListener('DOMContentLoaded', inject); }
 
+          // TyranoScript's fitBaseSize() sets .tyrano_base's `left` to centre it,
+          // then calls window.scrollTo(width, height) with the SAME offset --
+          // double-shifting the picture right. Pin scrollTo's x to 0.
           var nativeScrollTo = window.scrollTo ? window.scrollTo.bind(window) : null;
           window.scrollTo = function (a, b) {
             if (a !== null && typeof a === 'object') { return nativeScrollTo ? nativeScrollTo(a) : undefined; }
             return nativeScrollTo ? nativeScrollTo(0, b || 0) : undefined;
           };
+
+          function kick() {
+            if (window.scrollX !== 0) { nativeScrollTo && nativeScrollTo(0, window.scrollY || 0); }
+            if (document.documentElement.scrollLeft !== 0) { document.documentElement.scrollLeft = 0; }
+            if (document.body && document.body.scrollLeft !== 0) { document.body.scrollLeft = 0; }
+          }
+
+          function nudge() {
+            kick();
+            var e = document.getElementById('tyrano_base');
+            if (!e) return;
+            var scale = 1;
+            var m = /scale\\(([\\d.]+)\\)/.exec(e.style.transform || '');
+            if (m) { scale = parseFloat(m[1]); }
+            var boxW = e.offsetParent ? e.offsetParent.clientWidth : document.documentElement.clientWidth;
+            if (!boxW) return;
+            var want = Math.max(0, Math.round((boxW - e.offsetWidth * scale) / 2));
+            var cur = Math.round(parseFloat(e.style.left) || 0);
+            if (Math.abs(cur - want) > 1) { e.style.left = want + 'px'; }
+          }
+
+          window.__nudge = nudge;
+          setInterval(nudge, 250);
         })();
         """
         config.userContentController.addUserScript(
@@ -269,6 +297,30 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
           try {
             out.visible = document.visibilityState;
           } catch (e) {}
+          try {
+            var be = document.getElementById('tyrano_base');
+            if (be) {
+              var br = be.getBoundingClientRect();
+              var vv = window.visualViewport;
+              var vw = vv ? vv.width : window.innerWidth;
+              out.geom = {
+                innerW: window.innerWidth,
+                visualW: vv ? Math.round(vv.width) : -1,
+                docW: document.documentElement.clientWidth,
+                bodyW: document.body ? document.body.clientWidth : -1,
+                left: be.style.left,
+                tf: be.style.transform,
+                rectL: Math.round(br.left),
+                rectR: Math.round(br.right),
+                rectW: Math.round(br.width),
+                scrollX: window.scrollX
+              };
+              out.gapL = Math.round(br.left);
+              out.gapR = Math.round(vw - br.right);
+              out.centred = Math.abs(out.gapL - out.gapR) <= 6;
+            }
+          } catch (e) { out.geomErr = '' + e; }
+          out.stPatched = !!window.__stPatched;
           return JSON.stringify(out, null, 1);
         })();
         """
@@ -284,11 +336,15 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
                 return
             }
             let raw = (result as? String) ?? "\(result ?? "nil")"
+            report += "居中: \(raw.contains("\"centred\": true") ? "是" : "否")"
+            report += "   scrollTo 已接管: \(raw.contains("\"stPatched\": true") ? "是" : "否")\n\n"
             report += raw + "\n\n路径尝试:\n" + self.triedPaths.joined(separator: "\n")
 
-            // Real failures only. A missing decorative image or a rejected
-            // media-autoplay promise must not cover a working game.
-            let healthy = raw.contains("\"tyrano\": true") && !raw.contains("\"baseChildren\": 0")
+            // Real failures only -- but "off centre" now counts, since that is
+            // the symptom we are chasing.
+            let healthy = raw.contains("\"tyrano\": true")
+                && !raw.contains("\"baseChildren\": 0")
+                && raw.contains("\"centred\": true")
             if healthy {
                 NSLog("[SylvieGame] boot OK: %@", raw)
                 return
