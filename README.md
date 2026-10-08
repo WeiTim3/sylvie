@@ -66,6 +66,28 @@ App 按顺序找 `index.html`：
 python3 patches/apply_www.py /path/to/assets/www
 ```
 
+## 内容覆盖（Content overrides）
+
+`www` 有 1.4 GB、上万个文件，在手机上用 Filza 改剧情很痛苦。所以 App 支持一层覆盖：
+
+```
+App 包里  SylvieGame.app/patches/<相对路径>      ← 优先
+游戏目录  Documents/www/<相对路径>
+```
+
+`Content/patches/` 以 **folder reference** 方式进工程，整棵树原样拷贝进 App，
+所以 `Content/patches/data/scenario/intro/opening.ks` 会落到
+`SylvieGame.app/patches/data/scenario/intro/opening.ks`，请求同路径时覆盖 Documents 里那份。
+
+**当前覆盖的内容**：
+
+| 文件 | 改动 | 原因 |
+|---|---|---|
+| `data/scenario/intro/opening.ks` | 入口两个按钮 → `[jump target="*y20"]` | 跳过 MOD 的 20 题答题闯关（答错任何一题直接 game over） |
+
+要再加覆盖，把文件按同样的相对路径丢进 `Content/patches/` 即可。
+
+
 ---
 
 ## 操作

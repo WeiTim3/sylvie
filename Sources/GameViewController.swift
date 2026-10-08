@@ -16,6 +16,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     private var splashDismissed = false
     private var readyTimer: Timer?
     private var readyTries = 0
+    private var backupTimer: Timer?
 
     // MARK: - Diagnostics
 
@@ -399,7 +400,75 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
         }
         run("document.querySelectorAll('audio,video').forEach(function(e){try{e.pause()}catch(x){}});")
+        backupLocalStorage()
         NSLog("[SylvieGame] media suspended (background)")
+    }
+
+    // MARK: - Save data safety net
+    //
+    // TyranoScript stores saves in localStorage, which is keyed by *origin*
+    // (scheme + host + port). Anything that changes the origin -- a different
+    // server port, or WebKit evicting the storage -- makes every existing save
+    // unreachable, which looks exactly like "saving doesn't work".
+    //
+    // The port is pinned now, but mirror the whole store to a file in
+    // Documents as well: if a fresh origin comes up empty we put it back.
+
+    private var backupURL: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("tyrano-saves.json")
+    }
+
+    private func backupLocalStorage() {
+        webView.evaluateJavaScript(
+            """
+            (function () {
+              try {
+                var out = {};
+                for (var i = 0; i < localStorage.length; i++) {
+                  var k = localStorage.key(i);
+                  out[k] = localStorage.getItem(k);
+                }
+                return JSON.stringify(out);
+              } catch (e) { return ''; }
+            })();
+            """
+        ) { [weak self] result, _ in
+            guard let self = self,
+                  let json = result as? String, json.count > 4,
+                  let url = self.backupURL else { return }
+            try? json.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func restoreLocalStorageIfNeeded() {
+        guard let url = backupURL,
+              let json = try? String(contentsOf: url, encoding: .utf8),
+              !json.isEmpty else { return }
+
+        // Base64 keeps the payload out of harm's way: JSON is fine as a JS
+        // object literal except for U+2028/U+2029, which would break the parse.
+        let base64 = Data(json.utf8).base64EncodedString()
+        webView.evaluateJavaScript(
+            """
+            (function () {
+              try {
+                if (localStorage.length > 0) { return 'kept (' + localStorage.length + ')'; }
+                var data = JSON.parse(atob("\(base64)"));
+                var n = 0;
+                for (var k in data) {
+                  if (Object.prototype.hasOwnProperty.call(data, k)) {
+                    localStorage.setItem(k, data[k]);
+                    n++;
+                  }
+                }
+                return 'restored ' + n;
+              } catch (e) { return 'err ' + e.message; }
+            })();
+            """
+        ) { result, _ in
+            NSLog("[SylvieGame] localStorage restore: %@", String(describing: result))
+        }
     }
 
     @objc private func resumeMedia() {
@@ -506,7 +575,8 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         }
         gameRoot = folder
 
-        let server = LocalServer(root: folder)
+        let server = LocalServer(root: folder,
+                                 preferredPort: UInt16(clamping: UserDefaults.standard.integer(forKey: "GameServerPort")))
         do {
             try server.start()
         } catch {
@@ -514,12 +584,20 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             return
         }
         self.server = server
+        UserDefaults.standard.set(Int(server.port), forKey: "GameServerPort")
 
         let index = server.baseURL.appendingPathComponent("index.html")
         NSLog("[SylvieGame] serving %@ at %@", folder.path, index.absoluteString)
         webView.load(URLRequest(url: index))
 
         startReadyWatch()
+
+        // Periodic safety mirror of localStorage (the background hook catches
+        // the normal case, this covers long sessions that never background).
+        backupTimer?.invalidate()
+        backupTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            self?.backupLocalStorage()
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
             self?.runBootCheck()
@@ -618,6 +696,11 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     }
 
     // MARK: - WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Put the player's saves back if this origin has never been used.
+        restoreLocalStorageIfNeeded()
+    }
 
     func webView(_ webView: WKWebView,
                  didFailProvisionalNavigation navigation: WKNavigation!,

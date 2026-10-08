@@ -14,19 +14,44 @@ final class LocalServer {
     enum ServerError: Error { case socket, bind, listen }
 
     private let root: URL
+    private let preferredPort: UInt16
     private var listenFD: Int32 = -1
     private let acceptQueue = DispatchQueue(label: "sylvie.server.accept")
     private(set) var port: UInt16 = 0
 
-    init(root: URL) {
+    init(root: URL, preferredPort: UInt16 = 0) {
         self.root = root.standardizedFileURL
+        self.preferredPort = preferredPort
     }
 
     var baseURL: URL { URL(string: "http://127.0.0.1:\(port)/")! }
 
     // MARK: - Lifecycle
 
+    /// A stable port is not cosmetic. localStorage is keyed by *origin*, and the
+    /// origin includes the port -- so with a kernel-assigned port the game gets
+    /// a brand new, empty storage on every launch and the player's saves
+    /// silently disappear. Try the remembered port first, then a small fixed
+    /// range, and only fall back to "anything free" as a last resort.
     func start() throws {
+        var candidates: [UInt16] = []
+        if preferredPort > 0 { candidates.append(preferredPort) }
+        candidates.append(contentsOf: [18765, 18766, 18767])
+        candidates.append(0)
+
+        var lastError: Error = ServerError.bind
+        for candidate in candidates {
+            do {
+                try bindAndListen(port: candidate)
+                return
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    private func bindAndListen(port wanted: UInt16) throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw ServerError.socket }
 
@@ -36,7 +61,7 @@ final class LocalServer {
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(0).bigEndian          // let the kernel pick
+        addr.sin_port = wanted.bigEndian
         addr.sin_addr.s_addr = inet_addr("127.0.0.1")
 
         let bindResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
