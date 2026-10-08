@@ -279,6 +279,29 @@ def main():
         else:
             print("  =  %s already gone" % rel)
 
+    # --- Fix 8: skip the MOD's 20-question quiz gauntlet ------------------
+    # The opening branches into *no / *ok; *ok starts a chain of biology
+    # questions where a single wrong answer ends the game (*n20 -> game over).
+    # *y20 is the pass branch: it does the handover (the man leaves, Sylvie
+    # introduces herself) and jumps to intro/step1.ks. Entering there directly
+    # keeps the scene state correct while dropping the quiz.
+    print("[8] opening.ks: skip the quiz")
+    opening = os.path.join(www, "data", "scenario", "intro", "opening.ks")
+    if os.path.isfile(opening):
+        text = read(opening)
+        quiz_entry = re.compile(
+            r'\[button target="\*no" graphic="ch/jqxw\.png"[^\]]*\]\s*'
+            r'\[button target="\*ok" graphic="ch/ksrw\.png"[^\]]*\]\[s\]', re.S)
+        if '[jump target="*y20"]' in text and not quiz_entry.search(text):
+            print("  =  already applied")
+        elif quiz_entry.search(text):
+            write(opening, quiz_entry.sub('[jump target="*y20"]', text, count=1))
+            print("  ✓  quiz entry replaced with a jump to *y20")
+        else:
+            print("  !  quiz entry pattern not found (scenario already differs?)")
+    else:
+        print("  !! opening.ks not found")
+
     shim_path = os.path.join(www, "wkwrap-shim.js")
     write(shim_path, SHIM)
     print("  ✓  wkwrap-shim.js written")

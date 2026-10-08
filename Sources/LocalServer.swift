@@ -102,16 +102,27 @@ final class LocalServer {
 
         // resolve inside root, refusing traversal
         let relative = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        var target = root.appendingPathComponent(relative).standardizedFileURL
-        guard target.path == root.path || target.path.hasPrefix(root.path + "/") else {
+        var withinRoot = root.appendingPathComponent(relative).standardizedFileURL
+        guard withinRoot.path == root.path || withinRoot.path.hasPrefix(root.path + "/") else {
             sendStatus(fd, 403, "Forbidden")
             return
         }
 
         var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir), isDir.boolValue {
-            target = target.appendingPathComponent("index.html")
+        if FileManager.default.fileExists(atPath: withinRoot.path, isDirectory: &isDir), isDir.boolValue {
+            withinRoot = withinRoot.appendingPathComponent("index.html")
         }
+
+        // A file shipped inside the app at <bundle>/patches/<same relative path>
+        // shadows the copy under the game root. Game data lives in Documents,
+        // which is awkward to edit on-device, so scenario fixes can ride along
+        // with an app update instead. See Content/patches in the repo.
+        var target = withinRoot
+        if let override = LocalServer.bundleOverride(forRelativePath: relative) {
+            target = override
+            NSLog("[SylvieGame] content override: %@", relative)
+        }
+
         guard FileManager.default.fileExists(atPath: target.path) else {
             sendStatus(fd, 404, "Not Found")
             return
@@ -147,6 +158,35 @@ final class LocalServer {
         }
         guard total > 0 else { return nil }
         return String(bytes: buf[0..<total], encoding: .utf8)
+    }
+
+    // MARK: - Content overrides
+
+    /// Returns the bundled override for a request path, if one exists.
+    ///
+    /// `Content/patches/**` is added to the Xcode project as a *folder
+    /// reference*, so it is copied into the app verbatim and ends up at
+    /// `SylvieGame.app/patches/**`. Any file there shadows the same relative
+    /// path under the game root -- which is how scenario fixes ship without
+    /// asking anyone to hand-edit 1.4 GB of game data in Filza.
+    private static func bundleOverride(forRelativePath relative: String) -> URL? {
+        guard !relative.isEmpty,
+              let base = Bundle.main.resourceURL?.appendingPathComponent("patches") else {
+            return nil
+        }
+        var rel = relative
+        if rel.hasSuffix("/") { rel += "index.html" }
+
+        let basePath = base.standardizedFileURL.path
+        let candidate = base.appendingPathComponent(rel).standardizedFileURL
+        guard candidate.path.hasPrefix(basePath + "/") else { return nil }
+
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDir),
+              !isDir.boolValue else {
+            return nil
+        }
+        return candidate
     }
 
     // MARK: - Responses

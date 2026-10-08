@@ -21,6 +21,12 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+      # Folder reference: the whole tree is copied into the .app verbatim, so
+      # Content/patches/data/scenario/intro/opening.ks lands at
+      # SylvieGame.app/patches/data/scenario/intro/opening.ks and can shadow
+      # the same path under the game root. See LocalServer.bundleOverride.
+      - path: Content/patches
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.local.sylviegame
@@ -34,8 +40,8 @@ targets:
       properties:
         CFBundleDisplayName: 希露薇
         CFBundleName: SylvieGame
-        CFBundleShortVersionString: "2.0"
-        CFBundleVersion: "11"
+        CFBundleShortVersionString: "2.1"
+        CFBundleVersion: "12"
         LSRequiresIPhoneOS: true
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
