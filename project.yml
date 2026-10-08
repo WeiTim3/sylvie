@@ -34,13 +34,14 @@ targets:
       properties:
         CFBundleDisplayName: 希露薇
         CFBundleName: SylvieGame
-        CFBundleShortVersionString: "1.9"
-        CFBundleVersion: "10"
+        CFBundleShortVersionString: "2.0"
+        CFBundleVersion: "11"
         LSRequiresIPhoneOS: true
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         # Lets you drop the game's www folder in via the Files app.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

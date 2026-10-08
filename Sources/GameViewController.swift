@@ -3,16 +3,34 @@ import WebKit
 
 final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
 
+    // MARK: - Web
+
     private var webView: WKWebView!
     private var server: LocalServer?
+    private var gameRoot: URL?
+    private var triedPaths: [String] = []
+
+    // MARK: - Splash
+
+    private var splashView: UIView!
+    private var splashDismissed = false
+    private var readyTimer: Timer?
+    private var readyTries = 0
+
+    // MARK: - Diagnostics
 
     private var diagView: UIView!
     private var diagText: UITextView!
 
-    private var gameRoot: URL?
-    private var triedPaths: [String] = []
+    // MARK: - Haptics
 
-    // MARK: - Where the game might live
+    private let tapHaptic = UIImpactFeedbackGenerator(style: .light)
+    private let firmHaptic = UIImpactFeedbackGenerator(style: .medium)
+
+    override var prefersStatusBarHidden: Bool { return true }
+    override var prefersHomeIndicatorAutoHidden: Bool { return true }
+
+    // MARK: - Where the game lives
 
     private var candidateFolders: [URL] {
         var urls: [URL] = []
@@ -43,54 +61,22 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         super.viewDidLoad()
         view.backgroundColor = .black
         setUpWebView()
+        setUpSplash()
+        setUpGestures()
         setUpDiagnostics()
         observeAppState()
+        tapHaptic.prepare()
+        firmHaptic.prepare()
         startGame()
     }
 
-    // Landscape means the home indicator sits right under the message box;
-    // let it auto-dim so it doesn't sit on top of the text.
-    override var prefersHomeIndicatorAutoHidden: Bool { return true }
-
-    // MARK: - Background audio
-
-    // WebKit's media processes keep the audio session alive even after the app
-    // is suspended, so BGM keeps playing with the app in the background.
-    // setAllMediaPlaybackSuspended is the public, supported way to stop it.
-    private func observeAppState() {
-        let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(suspendMedia),
-                           name: UIApplication.didEnterBackgroundNotification, object: nil)
-        center.addObserver(self, selector: #selector(resumeMedia),
-                           name: UIApplication.willEnterForegroundNotification, object: nil)
-    }
-
-    @objc private func suspendMedia() {
-        if #available(iOS 15.0, *) {
-            webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
-        }
-        // Belt and braces: TyranoScript keeps its Audio objects outside the DOM,
-        // so also mute every element we can reach.
-        webView.evaluateJavaScript(
-            "document.querySelectorAll('audio,video').forEach(function(e){try{e.pause()}catch(x){}});",
-            completionHandler: nil)
-        NSLog("[SylvieGame] media suspended (background)")
-    }
-
-    @objc private func resumeMedia() {
-        if #available(iOS 15.0, *) {
-            webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
-        }
-        NSLog("[SylvieGame] media resumed (foreground)")
-    }
+    // MARK: - Web view
 
     private func setUpWebView() {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
-        // Belt and braces: if a future iOS keeps the file:// switches working we
-        // do not need them any more (we serve over http), but they cost nothing.
         for key in ["allowUniversalAccessFromFileURLs", "allowFileAccessFromFileURLs"] {
             setPrivateFlagIfPresent(config, key)
             setPrivateFlagIfPresent(config.preferences, key)
@@ -114,13 +100,10 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
 
         // TyranoScript's fitBaseSize() centres .tyrano_base by setting `left`,
         // then calls window.scrollTo(width, height) with the SAME offset --
-        // double-shifting the picture to the right. It only shows up in
-        // landscape (in portrait that offset is 0). Block horizontal scrolling
-        // and pin scrollTo's x to 0 so the centring survives.
+        // double-shifting the picture right (only visible in landscape).
         let layoutFix = """
         (function () {
           window.__stPatched = true;
-
           var css = 'html,body{overflow-x:hidden !important;max-width:100%;}';
           function inject() {
             var s = document.createElement('style');
@@ -129,9 +112,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
           }
           if (document.head) { inject(); } else { document.addEventListener('DOMContentLoaded', inject); }
 
-          // TyranoScript's fitBaseSize() sets .tyrano_base's `left` to centre it,
-          // then calls window.scrollTo(width, height) with the SAME offset --
-          // double-shifting the picture right. Pin scrollTo's x to 0.
           var nativeScrollTo = window.scrollTo ? window.scrollTo.bind(window) : null;
           window.scrollTo = function (a, b) {
             if (a !== null && typeof a === 'object') { return nativeScrollTo ? nativeScrollTo(a) : undefined; }
@@ -165,13 +145,11 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         config.userContentController.addUserScript(
             WKUserScript(source: layoutFix, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
-        // TyranoScript gates two things behind a tap, purely because mobile
-        // browsers block autoplay: the logo movie (`click.movie`) and the first
-        // BGM (`click.bgm`). A native WKWebView with
-        // mediaTypesRequiringUserActionForPlayback = [] has no such restriction,
-        // so the player just sees a black screen until they poke it. Fire those
-        // two specific handlers for them -- directly, so that ordinary
-        // (unnamespaced) click handlers, which advance dialogue, are untouched.
+        // TyranoScript gates the logo movie (`click.movie`) and the first BGM
+        // (`click.bgm`) behind a tap, purely because mobile browsers block
+        // autoplay. A native WKWebView has no such restriction. Fire those two
+        // named handlers directly -- not trigger('click'), which would also run
+        // unnamespaced handlers and skip dialogue.
         let autoTap = """
         (function () {
           function fireNamespaced(el, type, ns) {
@@ -194,7 +172,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
               }
             }
           }
-
           setInterval(function () {
             var el = document.querySelector('.tyrano_base');
             if (!el) { return; }
@@ -235,7 +212,204 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         }
     }
 
-    // MARK: - Diagnostics overlay
+    private func run(_ js: String) {
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    // MARK: - Splash
+
+    // Black-on-launch felt unfinished. Show the game's own key art while the
+    // engine boots, then hold it until something real is actually on screen
+    // (the logo movie or the title background) so there is never a black gap.
+    private func setUpSplash() {
+        let container = UIView()
+        container.backgroundColor = .black
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let image = UIImageView()
+        image.contentMode = .scaleAspectFit
+        image.translatesAutoresizingMaskIntoConstraints = false
+        image.image = Self.bundledImage(named: "splash", ext: "jpg")
+
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.color = UIColor(white: 1, alpha: 0.7)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+
+        container.addSubview(image)
+        container.addSubview(spinner)
+        view.addSubview(container)
+
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: view.topAnchor),
+            container.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            container.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            image.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            image.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            image.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: -24),
+
+            spinner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            spinner.topAnchor.constraint(equalTo: image.bottomAnchor, constant: 20),
+        ])
+
+        splashView = container
+    }
+
+    private static func bundledImage(named: String, ext: String) -> UIImage? {
+        guard let url = Bundle.main.url(forResource: named, withExtension: ext) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    private func startReadyWatch() {
+        readyTries = 0
+        readyTimer?.invalidate()
+        readyTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            self.readyTries += 1
+            if self.readyTries > 60 {                 // 18s hard stop
+                self.dismissSplash()
+                timer.invalidate()
+                return
+            }
+            self.webView.evaluateJavaScript(
+                """
+                (function () {
+                  try {
+                    if (typeof TYRANO === 'undefined' || !TYRANO.kag) return 'boot';
+                    var v = document.querySelector('video');
+                    if (v && v.readyState >= 2) return 'video';
+                    var s = TYRANO.kag.stat;
+                    if (s && s.current_scenario && s.current_scenario.indexOf('title_screen') !== -1) return 'title';
+                    return 'wait';
+                  } catch (e) { return 'wait'; }
+                })();
+                """
+            ) { [weak self] result, _ in
+                guard let self = self else { return }
+                guard let state = result as? String, state != "wait", state != "boot" else { return }
+                self.dismissSplash()
+                timer.invalidate()
+            }
+        }
+    }
+
+    private func dismissSplash() {
+        guard !splashDismissed, let splash = splashView else { return }
+        splashDismissed = true
+        readyTimer?.invalidate()
+        readyTimer = nil
+        UIView.animate(withDuration: 0.45, delay: 0, options: .curveEaseOut, animations: {
+            splash.alpha = 0
+        }, completion: { _ in
+            splash.isHidden = true
+            splash.removeFromSuperview()
+        })
+    }
+
+    // MARK: - Gestures
+
+    // Touch gestures are NOT swallowed by the web view: the engine still gets
+    // every tap it needs to advance the story.
+    private func setUpGestures() {
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(onHold(_:)))
+        hold.minimumPressDuration = 0.45
+        hold.numberOfTouchesRequired = 1
+        hold.cancelsTouchesInView = true
+        webView.addGestureRecognizer(hold)
+
+        let twoFinger = UITapGestureRecognizer(target: self, action: #selector(onTwoFingerTap))
+        twoFinger.numberOfTouchesRequired = 2
+        twoFinger.cancelsTouchesInView = true
+        webView.addGestureRecognizer(twoFinger)
+
+        let threeFinger = UITapGestureRecognizer(target: self, action: #selector(onThreeFingerTap))
+        threeFinger.numberOfTouchesRequired = 3
+        threeFinger.cancelsTouchesInView = true
+        webView.addGestureRecognizer(threeFinger)
+
+        // Haptic on every tap, without consuming the touch.
+        let haptic = UITapGestureRecognizer(target: self, action: #selector(onPlainTap))
+        haptic.numberOfTouchesRequired = 1
+        haptic.cancelsTouchesInView = false
+        haptic.require(toFail: hold)
+        webView.addGestureRecognizer(haptic)
+    }
+
+    @objc private func onPlainTap() {
+        tapHaptic.impactOccurred(intensity: 0.55)
+        tapHaptic.prepare()
+    }
+
+    // Long press = skip. Driving stat.is_skip directly avoids the extra
+    // nextOrder() that the [skipstart]/[skipstop] tags would fire.
+    @objc private func onHold(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            firmHaptic.impactOccurred(intensity: 0.8)
+            run("try { TYRANO.kag.stat.is_auto = false; TYRANO.kag.stat.is_skip = true; } catch (e) {}")
+        case .ended, .cancelled, .failed:
+            run("try { TYRANO.kag.stat.is_skip = false; } catch (e) {}")
+        default:
+            break
+        }
+    }
+
+    // Two-finger tap = the game's own menu (save / load / config / backlog).
+    @objc private func onTwoFingerTap() {
+        firmHaptic.impactOccurred(intensity: 0.7)
+        run("""
+        try {
+          var s = TYRANO.kag.stat;
+          if (s.current_scenario && s.current_scenario.indexOf('title_screen') !== -1) return;
+          TYRANO.kag.stat.is_skip = false;
+          TYRANO.kag.stat.is_auto = false;
+          TYRANO.kag.menu.showMenu();
+        } catch (e) {}
+        """)
+    }
+
+    // Three-finger tap = auto-play toggle.
+    @objc private func onThreeFingerTap() {
+        firmHaptic.impactOccurred(intensity: 0.7)
+        run("""
+        try {
+          var s = TYRANO.kag.stat;
+          if (s.is_auto === true) { s.is_auto = false; }
+          else { s.is_auto = true; s.is_skip = false; }
+        } catch (e) {}
+        """)
+    }
+
+    // MARK: - Background audio
+
+    // WebKit's media processes keep the audio session alive after the app is
+    // suspended, so BGM keeps playing with the app in the background.
+    private func observeAppState() {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(suspendMedia),
+                           name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.addObserver(self, selector: #selector(resumeMedia),
+                           name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @objc private func suspendMedia() {
+        if #available(iOS 15.0, *) {
+            webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+        }
+        run("document.querySelectorAll('audio,video').forEach(function(e){try{e.pause()}catch(x){}});")
+        NSLog("[SylvieGame] media suspended (background)")
+    }
+
+    @objc private func resumeMedia() {
+        if #available(iOS 15.0, *) {
+            webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
+        }
+        NSLog("[SylvieGame] media resumed (foreground)")
+    }
+
+    // MARK: - Diagnostics (only surfaces on a real failure)
 
     private func setUpDiagnostics() {
         let container = UIView()
@@ -293,12 +467,23 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
 
     @objc private func reloadTapped() {
         diagView.isHidden = true
+        splashDismissed = false
+        setUpSplashAgainIfNeeded()
         startGame()
+    }
+
+    private func setUpSplashAgainIfNeeded() {
+        if splashView == nil || splashView.superview == nil {
+            setUpSplash()
+        }
+        splashView.isHidden = false
+        splashView.alpha = 1
     }
 
     private func showDiagnostics(_ body: String) {
         diagText.text = body
         diagView.isHidden = false
+        dismissSplash()
         NSLog("[SylvieGame] DIAG\n%@", body)
     }
 
@@ -321,8 +506,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         }
         gameRoot = folder
 
-        // Serve over http://127.0.0.1 rather than file://: WKWebView blocks XHR
-        // to file URLs, and TyranoScript reads Config.tjs + every .ks that way.
         let server = LocalServer(root: folder)
         do {
             try server.start()
@@ -336,7 +519,9 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         NSLog("[SylvieGame] serving %@ at %@", folder.path, index.absoluteString)
         webView.load(URLRequest(url: index))
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 9) { [weak self] in
+        startReadyWatch()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
             self?.runBootCheck()
         }
     }
@@ -346,7 +531,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         (function () {
           var out = {};
           out.ready = document.readyState;
-          out.title = document.title;
           out.tyrano = (typeof TYRANO !== 'undefined');
           out.origin = location.origin;
           out.errs = (window.__errs || []).slice(0, 12);
@@ -358,10 +542,8 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             if (typeof TYRANO !== 'undefined' && TYRANO.kag && TYRANO.kag.stat) {
               var s = TYRANO.kag.stat;
               out.state = s.current_scenario + ' L' + s.current_line;
-              out.strongStop = s.is_strong_stop;
-              out.videoPlaying = TYRANO.kag.tmp.video_playing;
             }
-          } catch (e) { out.stateErr = '' + e; }
+          } catch (e) {}
           try {
             var x = new XMLHttpRequest();
             x.open('GET', 'data/system/Config.tjs', false);
@@ -369,39 +551,26 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             out.xhrConfig = x.status + ' (' + (x.responseText || '').length + ' chars)';
           } catch (e) { out.xhrConfig = 'THREW: ' + e.message; }
           try {
-            out.visible = document.visibilityState;
-          } catch (e) {}
-          try {
             var be = document.getElementById('tyrano_base');
             if (be) {
               var br = be.getBoundingClientRect();
               var vv = window.visualViewport;
               var vw = vv ? vv.width : window.innerWidth;
-              out.geom = {
-                innerW: window.innerWidth,
-                visualW: vv ? Math.round(vv.width) : -1,
-                docW: document.documentElement.clientWidth,
-                bodyW: document.body ? document.body.clientWidth : -1,
-                left: be.style.left,
-                tf: be.style.transform,
-                rectL: Math.round(br.left),
-                rectR: Math.round(br.right),
-                rectW: Math.round(br.width),
-                scrollX: window.scrollX
-              };
+              out.left = be.style.left;
+              out.tf = be.style.transform;
               out.gapL = Math.round(br.left);
               out.gapR = Math.round(vw - br.right);
+              out.scrollX = window.scrollX;
               out.centred = Math.abs(out.gapL - out.gapR) <= 6;
             }
-          } catch (e) { out.geomErr = '' + e; }
-          out.stPatched = !!window.__stPatched;
+          } catch (e) {}
           return JSON.stringify(out, null, 1);
         })();
         """
 
         webView.evaluateJavaScript(js) { [weak self] result, error in
             guard let self = self else { return }
-            var report = "启动检查（9 秒）\n"
+            var report = "启动检查（12 秒）\n"
             report += "服务地址: \(self.server.map { $0.baseURL.absoluteString } ?? "无")\n"
             report += "素材目录: \(self.gameRoot?.path ?? "?")\n\n"
             if let error = error {
@@ -410,17 +579,14 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
                 return
             }
             let raw = (result as? String) ?? "\(result ?? "nil")"
-            report += "居中: \(raw.contains("\"centred\": true") ? "是" : "否")"
-            report += "   scrollTo 已接管: \(raw.contains("\"stPatched\": true") ? "是" : "否")\n\n"
+            report += "居中: \(raw.contains("\"centred\": true") ? "是" : "否")\n\n"
             report += raw + "\n\n路径尝试:\n" + self.triedPaths.joined(separator: "\n")
 
-            // Real failures only -- but "off centre" now counts, since that is
-            // the symptom we are chasing.
             let healthy = raw.contains("\"tyrano\": true")
                 && !raw.contains("\"baseChildren\": 0")
                 && raw.contains("\"centred\": true")
             if healthy {
-                NSLog("[SylvieGame] boot OK: %@", raw)
+                NSLog("[SylvieGame] boot OK")
                 return
             }
             self.showDiagnostics(report)
