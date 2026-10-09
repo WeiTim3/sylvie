@@ -435,6 +435,36 @@ TRANS_NEW = '''$.trans = function(method, j_obj, time, mode, callback) {
     };'''
 
 
+BG_NEW = '''tag.bg={vital:["storage"],pm:{storage:"",method:"crossfade",wait:"true",time:3E3,cross:"false"},start:function(pm){this.kag.ftag.hideNextImg();var that=this;if(pm.time==0)pm.wait="false";var storage_url="./data/bgimage/"+pm.storage;if($.isHTTP(pm.storage))storage_url=pm.storage;
+/* 背景这一步有两处可能等不到回调：图片 preload 的回调、转场动画的 animationend。
+   任何一处不来，wait="true" 时剧情就永远停在这儿（画面还是黑/旧背景）。
+   这里加一个定时兜底，保证剧情一定会往下走（正常走完时 __bg_done 为 true，不会重复推进）。 */
+var __bg_done=false;var __bg_advance=function(){if(__bg_done)return;__bg_done=true;if(pm.wait=="true"){try{that.kag.layer.showEventLayer()}catch(e){}that.kag.ftag.nextOrder()}};
+if(pm.wait=="true")setTimeout(__bg_advance,parseInt(pm.time)+1500);
+this.kag.preload(storage_url,function(){var j_old_bg=that.kag.layer.getLayer("base","fore");var j_new_bg=j_old_bg.clone(false);j_new_bg.css("background-image","url("+storage_url+")");j_new_bg.css("display","none");j_old_bg.after(j_new_bg);that.kag.ftag.hideNextImg();that.kag.layer.updateLayer("base","fore",j_new_bg);if(pm.wait=="true")that.kag.layer.hideEventLayer();pm.time=that.kag.cutTimeWithSkip(pm.time);if(pm.cross=="true")$.trans(pm.method,j_old_bg,parseInt(pm.time),"hide",function(){j_old_bg.remove()});$.trans(pm.method,j_new_bg,parseInt(pm.time),"show",function(){j_new_bg.css("opacity",1);try{if(pm.cross=="false")j_old_bg.remove()}catch(e){}__bg_advance()})});
+if(pm.wait=="false")this.kag.ftag.nextOrder()}};'''
+
+
+def install_bg_guard():
+    """[bg] must never be able to stall the scenario (idempotent)."""
+    rel = "tyrano/plugins/kag/kag.tag.js"
+    path = os.path.join(WWW, rel)
+    with open(path, encoding="utf-8", errors="surrogateescape") as fh:
+        text = fh.read()
+    if "__bg_advance" in text:
+        print("  [已是最新] 背景标签兜底")
+        return 0
+    new_text, n = re.subn(r"tag\.bg=\{vital:\[.storage.\].*?if\(pm\.wait==.false.\)this\.kag\.ftag\.nextOrder\(\)\}\};",
+                          lambda m: BG_NEW, text, count=1, flags=re.S)
+    if n == 0:
+        print(f"  [警告] {rel}: 没找到 tag.bg")
+        return 0
+    with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
+        fh.write(new_text)
+    print("  [已加] 背景标签兜底 —— 换背景再也不会把剧情卡住")
+    return 1
+
+
 def install_trans_guard():
     """Transitions must not depend on animationend firing (idempotent)."""
     rel = "tyrano/libs.js"
@@ -518,6 +548,7 @@ def main():
     total += install_load_guard()
     print("== 转场 ==")
     total += install_trans_guard()
+    total += install_bg_guard()
     print("== 界面 ==")
     total += install_skip_button()
     print(f"共修改 {total} 处")
