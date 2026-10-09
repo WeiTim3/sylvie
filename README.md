@@ -1,150 +1,107 @@
 # SylvieGame
 
-把 **【希露薇の交配計劃MOD】ver7.6.9**（原为 Android APK，TyranoScript 引擎）
-变成一个真正能用的 iPhone 游戏。
+iPhone 上跑 **【希露薇の交配計劃MOD】ver8.0.3**。
 
-游戏本体是纯 HTML5，所以这里做的事情是：**一个极小的原生壳 + 一套让 TyranoScript
-在 WKWebView 里正常工作的兼容补丁**。壳只有 4 个 Swift 文件、零第三方依赖。
+游戏本体是纯 HTML5（TyranoScript 引擎），所以这里只做一件事：
+**一个极小的原生壳 + 一份改好的游戏数据。**
 
 ```
-┌──────────────────────────────────────────────┐
-│  SylvieGame.app            (221 KB 二进制)    │
-│   ├ WKWebView  ──  TyranoScript 引擎 ── 剧本  │
-│   ├ LocalServer  本地 HTTP 服务 (127.0.0.1)   │
-│   └ Splash / 手势 / 触觉 / 诊断                │
-└──────────────────────────────────────────────┘
-              素材 (1.4 GB) 放在 Documents/www
+Sources/            4 个 Swift 文件 · 566 行 · 零第三方依赖
+Resources/          图标
+.github/workflows/  云端编译出未签名 IPA
 ```
 
 ---
 
-## 目录
+## 为什么需要这个壳
 
-| 路径 | 作用 |
-|---|---|
-| `Sources/` | 壳（4 个 Swift 文件） |
-| `Resources/` | 图标、启动图、启动背景色 |
-| `patches/apply_www.py` | **把原版 APK 的 www 修成能在 WKWebView 跑** |
-| `tools/serve.py` | 带 Range 支持的本地服务（浏览器调试用） |
-| `tools/bake.py` | 把素材烘进 IPA，做自包含版 |
-| `docs/IOS_PORTING.md` | 完整移植笔记（每个坑的根因与修法） |
-| `docs/PACKAGE_ANALYSIS.md` | 原始 APK 内容分析 |
-| `docs/WEB_PORT.md` | 备选方案：不装 App，用浏览器玩 |
-| `.github/workflows/build-ipa.yml` | 云端编译出未签名 IPA |
+游戏是给**桌面浏览器**写的，直接塞进 iOS 的 WKWebView 会死在这几处：
+
+| 问题 | 原因 | 解决 |
+|---|---|---|
+| 黑屏，地图都读不出来 | **WKWebView 禁止 `file://` 页面发 XHR**，而 TyranoScript 靠 XHR 读 `Config.tjs` 和所有 `.ks` | 壳内嵌一个本地 HTTP 服务，改走 `http://127.0.0.1:<端口>` |
+| 报错看不见，只有黑屏 | TyranoScript 用 `alert()` 报错，而没设 `WKUIDelegate` 时弹窗被静默丢弃 | 实现 `runJavaScriptAlertPanelWithMessage` |
+| 横屏画面贴右 | `tyrano.base.js` 先设居中 `left`、又 `window.scrollTo(width,height)` 滚了同样距离（竖屏时该值为 0 所以原版没暴露） | 游戏数据里改掉（见下） |
+| 打开要点一下才有画面 | 引擎为移动浏览器加的 `click.movie` / `click.bgm` 自动播放门槛 | 游戏数据里去掉（本 App 已放行自动播放） |
+| 存档丢失 | **localStorage 按 origin 隔离，而 origin 含端口**。随机端口 = 每次全新存储 | 端口固定（记住 18765），另存一份镜像文件兜底 |
+| 切后台还在响 | WebKit 的媒体进程独立占着音频会话 | `setAllMediaPlaybackSuspended` |
+
+**`file://` 那条是根本原因** —— 它决定了必须有本地 HTTP 服务。
+（自定义 `WKURLSchemeHandler` 不行：AVFoundation 不认自定义 scheme，音视频会全挂。）
 
 ---
 
-## 编译与安装
+## 游戏数据的修正
+
+素材放在 `Documents/www`（见下方"放素材"），但它必须先是 **iOS 可用的版本**：
+
+### 1. 媒体转码（必须）
+
+原包的音频是 **Vorbis `.ogg`**、视频是 **VP9 `.webm`** —— iOS 的 WebKit **两个都不支持**。
 
 ```sh
-git push          # 推到 main 即触发 GitHub Actions
+# 音频：44 个 .ogg -> .m4a (AAC)
+ffmpeg -i x.ogg -c:a aac -b:a 128k x.m4a
+
+# 视频：25 个 .webm -> .mp4 (H.264)
+ffmpeg -i x.webm -c:v h264_videotoolbox -b:v 1200k -pix_fmt yuv420p \
+       -c:a aac -b:a 96k -movflags +faststart x.mp4
 ```
 
-约 2 分钟产出未签名 `.ipa`（Actions → 最新 run → Artifacts）。装法：
+音频**不用改剧本引用**：引擎在 Safari 下会自己做
+`storage = replaceAll(storage, ".ogg", ".m4a")`，所以磁盘上是 `.m4a` 就够了。
+视频则相反，剧本里的 `.webm` 引用要改成 `.mp4`（35 处，在 `pre/macro.ks` 和 `H/video.ks`）。
 
-- **TrollStore**（推荐，iOS 14.0–16.6.1）：`.ipa` 存到「文件」→ TrollStore 打开 → Install
+### 2. 引擎脚本修正（必须）
+
+| 文件 | 改动 |
+|---|---|
+| `index.html` | viewport 补 `width=device-width`（否则 iOS 用 980px 布局视口，居中算错） |
+| `tyrano/tyrano.base.js` | `window.scrollTo(width, height)` → `window.scrollTo(0, 0)`（2 处） |
+| `tyrano/plugins/kag/kag.tag_audio.js` | 去掉 `click.bgm` 门槛；给音频 `play` 事件加超时兜底 |
+| `tyrano/plugins/kag/kag.tag_ext.js` | 影片加载失败兜底（解不了就跳过，别卡死） |
+
+> 8.0.3 的影片标签**已经不需要点击**了（新版直接 `playVideo`），这一项不用改。
+
+---
+
+## 编译
+
+```sh
+git push        # 推到 main 即触发 GitHub Actions
+```
+
+约 2 分钟出未签名 `.ipa`（Actions → 最新 run → Artifacts）。
+runner 必须是 `macos-15`：当前 XcodeGen 生成 `objectVersion 77`，`macos-14` 的 Xcode 15 打不开。
+
+## 安装
+
+- **TrollStore**（iOS 14.0–16.6.1）：`.ipa` 存到「文件」→ TrollStore 打开 → Install
 - 或越狱 + **AppSync Unified** + Filza 直接点 `.ipa`
-
-> runner 必须是 `macos-15`：当前 XcodeGen 生成 `objectVersion 77`（Xcode 16 格式），
-> `macos-14` 的 Xcode 15 打不开。
 
 ## 放素材
 
 App 按顺序找 `index.html`：
 
 ```
-1. <App Documents>/www              ← 常用
+1. <App Documents>/www              ← 常用（可用「文件」App 传）
 2. /var/mobile/Media/ver769/www      ← 越狱捷径
 3. <App Bundle>/www                  ← 自包含版
 ```
 
-`www` 里应直接看到 `index.html` / `tyrano/` / `data/`。
-
-**素材必须先过一遍补丁**，否则黑屏：
-
-```sh
-python3 patches/apply_www.py /path/to/assets/www
-```
-
-## 内容覆盖（Content overrides）
-
-`www` 有 1.4 GB、上万个文件，在手机上用 Filza 改剧情很痛苦。所以 App 支持一层覆盖：
-
-```
-App 包里  SylvieGame.app/patches/<相对路径>      ← 优先
-游戏目录  Documents/www/<相对路径>
-```
-
-`Content/patches/` 以 **folder reference** 方式进工程，整棵树原样拷贝进 App，
-所以 `Content/patches/data/scenario/intro/opening.ks` 会落到
-`SylvieGame.app/patches/data/scenario/intro/opening.ks`，请求同路径时覆盖 Documents 里那份。
-
-**当前覆盖的内容**：
-
-| 文件 | 改动 | 原因 |
-|---|---|---|
-| `data/scenario/intro/opening.ks` | 入口两个按钮 → `[jump target="*y20"]` | 跳过 MOD 的 20 题答题闯关（答错任何一题直接 game over） |
-
-要再加覆盖，把文件按同样的相对路径丢进 `Content/patches/` 即可。
-
-
----
+把改好的 `www` 整个放进去即可。1.5 GB / 13,000 个文件，用 Filza 比「文件」App 快得多。
 
 ## 操作
 
-横屏下两侧各有约 143pt 黑边，**控制条就住在右边那条黑边里**，不遮挡任何画面：
-
-```
-┌─────┬───────────────────────────┬──────┐
-│     │                           │ 快进 │  ← 点亮 = 快进中
-│     │                           │ 自动 │  ← 点亮 = 自动播放
-│     │        游戏画面            │ 菜单 │  ← 存档 / 读档 / 设置 / 回想
-│     │                           │ 诊断 │  ← 打开实时诊断面板
-└─────┴───────────────────────────┴──────┘
-```
-
-| 控件 | 行为 |
+| 操作 | 行为 |
 |---|---|
-| **点击画面** | 推进对话（带轻触觉反馈） |
-| **快进** | 开关式，点亮即持续快进（这期间点一下画面会关掉它） |
-| **自动** | 开关式，按 `autoSpeed` 自动翻页 |
-| **菜单** | 调出游戏自己的菜单层 |
-| **诊断** | 打开/关闭诊断面板（打开时每秒刷新） |
+| 点击画面 | 推进对话（引擎自带） |
+| 切到后台 | 音频暂停 |
+| 回到前台 | 继续 |
 
-开关状态每秒与引擎同步一次 —— 因为引擎自己也会改变它（点击会取消快进、`autoClickStop` 会结束自动），
-按钮不能只记自己按了什么。
-
-切到后台自动静音，回前台继续。
-
----
-
-## 这套补丁在修什么
-
-| # | 症状 | 根因 | 修法 |
-|---|---|---|---|
-| 1 | 黑屏，无任何提示 | TyranoScript 用 `alert()` 报错，但没设 `WKUIDelegate`，弹窗被静默丢弃 | 实现 `runJavaScriptAlertPanelWithMessage` |
-| 2 | `file not found: ./data/system/Config.tjs` | `tyrano/libs.js` 的 `$.loadText` 走 XHR，**WKWebView 禁止 `file://` 页面发 XHR** | 壳内嵌 HTTP 服务，改走 `http://127.0.0.1:<随机端口>` |
-| 3 | 横屏画面贴右、左侧全黑 | `tyrano.base.js` 先设居中 `left`，再 `window.scrollTo(width, height)` **滚了同样的距离** → 双重偏移（竖屏时该值为 0，所以原版没暴露） | 引擎补丁 + 壳侧每 250ms 清 `scrollLeft` |
-| 4 | 竖屏浪费 69% 屏幕 | 游戏是 1350×900（3:2） | 强制横屏，按高度缩放占宽 69% |
-| 5 | 打开要点了才有画面 | TyranoScript 给移动端加的 `click.movie` / `click.bgm` 门槛 | 壳直接调用那两个带命名空间的 handler（不动普通 click，避免跳剧情） |
-| 6 | 剧本引用 `.webm`，包里只有 `.mp4` | MOD 打包时没同步改剧本 | 全量替换（35 处） |
-| 7 | 音频在 Safari 下被映射成 `.m4a`，包里只有 `.mp3` | 引擎的浏览器嗅探逻辑 | 改成映射 `.mp3` |
-| 8 | 切后台 BGM 还在响 | WebKit 的媒体进程独立占用音频会话 | iOS 15+ `setAllMediaPlaybackSuspended` |
-
-**为什么不用自定义 `WKURLSchemeHandler`**：AVFoundation 不认自定义 scheme，
-这样音视频会全挂。必须走真 HTTP —— 这也是 `LocalServer.swift` 存在的原因（约 300 行，POSIX socket）。
-
----
-
-## 已知无害噪音
-
-| 现象 | 说明 |
-|---|---|
-| `LOAD-FAIL .../images/system/button_menu.png` | 这文件**本来就不在包里**，MOD 作者删了但 `kag.js` 仍引用 |
-| `REJECT: The operation is not supported.` | 音视频 `play()` 的 promise 拒绝 |
-| 上下/左右黑边 | 3:2 的游戏放在 19.5:9 的屏幕上，信箱式留黑是正确的（强行填满要裁掉 65% 宽度） |
+没有别的了 —— 这是刻意的。
 
 ## 授权
 
-壳代码是自用的，随便改。**游戏的剧本、美术、音乐版权属于原作者 Ray-Kbys
+壳代码自用，随便改。**游戏的剧本、美术、音乐版权属于原作者 Ray-Kbys
 及 MOD 制作者「雙態協會×希露薇Fans團」，不可再分发。**

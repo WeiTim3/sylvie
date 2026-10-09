@@ -8,9 +8,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        // Visual novels expect the screen to stay on.
-        application.isIdleTimerDisabled = true
-
+        application.isIdleTimerDisabled = true          // visual novels never idle
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.backgroundColor = .black
         window.rootViewController = GameViewController()
@@ -19,8 +17,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
-    // Landscape only: the game is 1350x900 (3:2), so a landscape window uses
-    // ~69% of the screen width instead of ~31% of the height in portrait.
+    // Landscape only. The game is 1350x900 (3:2); in landscape it uses ~69% of
+    // the screen width, in portrait only ~31% of the height.
     func application(
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?

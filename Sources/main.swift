@@ -1,6 +1,5 @@
-// Entry point. Uses the explicit UIApplicationMain call (rather than
-// @UIApplicationMain / @main) because it is unambiguous across Swift and
-// Xcode versions, and top-level code is only legal in main.swift.
+// Entry point. Explicit UIApplicationMain (top-level code is only legal in
+// main.swift) -- unambiguous across Swift and Xcode versions.
 import UIKit
 
 UIApplicationMain(
