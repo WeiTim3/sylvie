@@ -302,6 +302,45 @@ def main():
     else:
         print("  !! opening.ks not found")
 
+    # --- Fix 9: loading a save must not die half-way --------------------
+    # loadGameData() re-binds every saved .event-setting-element. A missing
+    # data-event-pm (or an unknown data-event-tag) makes JSON.parse / setEvent
+    # throw, which aborts the function *before* the [call make.ks] that
+    # finishes restoring the scene -- the game freezes mid-load. It also
+    # restores stat.is_stop from the save, and layer_obj_click bails on
+    # is_stop, so taps can end up dead.
+    print("[9] kag.menu.js: load path")
+    menu = os.path.join(www, "tyrano", "plugins", "kag", "kag.menu.js")
+    if os.path.isfile(menu):
+        text = read(menu)
+        old_a = ('$(".event-setting-element").each(function(){var j_elm=$(this);'
+                 'var kind=j_elm.attr("data-event-tag");'
+                 'var pm=JSON.parse(j_elm.attr("data-event-pm"));'
+                 'var event_tag=object(tyrano.plugin.kag.tag[kind]);'
+                 'event_tag.setEvent(j_elm,pm)});')
+        new_a = ('$(".event-setting-element").each(function(){'
+                 'try{var j_elm=$(this);var kind=j_elm.attr("data-event-tag");'
+                 'var pm=JSON.parse(j_elm.attr("data-event-pm"));'
+                 'var event_tag=object(tyrano.plugin.kag.tag[kind]);'
+                 'if(event_tag&&event_tag.setEvent)event_tag.setEvent(j_elm,pm)'
+                 '}catch(e){if(window.console)console.warn("rebind skipped",e)}});')
+        if new_a in text:
+            print("  =  already applied")
+        elif old_a in text:
+            text = text.replace(old_a, new_a, 1)
+            menu_pat = re.compile(r'(this\.kag\.ftag\.nextOrderWithIndex\('
+                                  r'data\.current_order_index,data\.stat\.current_scenario,true,insert,"yes"\))')
+            new_b = (r'\1;var __k=this.kag;'
+                     r'var __fix=function(){try{__k.stat.is_stop=false;__k.layer.showEventLayer()}catch(e){}};'
+                     r'__fix();setTimeout(__fix,300);setTimeout(__fix,900)')
+            text = menu_pat.sub(new_b, text, count=1)
+            write(menu, text)
+            print("  ✓  rebind guarded + interactivity restored after load")
+        else:
+            print("  !  anchor not found")
+    else:
+        print("  !! kag.menu.js not found")
+
     shim_path = os.path.join(www, "wkwrap-shim.js")
     write(shim_path, SHIM)
     print("  ✓  wkwrap-shim.js written")

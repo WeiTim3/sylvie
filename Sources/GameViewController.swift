@@ -17,6 +17,8 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     private var readyTimer: Timer?
     private var readyTries = 0
     private var backupTimer: Timer?
+    private var errorTimer: Timer?
+    private var lastSeriousErrors = -1
 
     // MARK: - Diagnostics
 
@@ -591,6 +593,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         webView.load(URLRequest(url: index))
 
         startReadyWatch()
+        startErrorWatch()
 
         // Periodic safety mirror of localStorage (the background hook catches
         // the normal case, this covers long sessions that never background).
@@ -668,6 +671,59 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
                 return
             }
             self.showDiagnostics(report)
+        }
+    }
+
+    // MARK: - Runtime error watch
+    //
+    // Boot-time problems surface through the boot check, but a failure during
+    // play (loading a save, opening a menu) would otherwise be invisible --
+    // the game just stops responding. Watch for new hard JS errors and put
+    // them on screen. Decorative 404s and media-autoplay rejections are
+    // filtered out; only JSERR / autotap count.
+    private func startErrorWatch() {
+        errorTimer?.invalidate()
+        lastSeriousErrors = -1
+        errorTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            self.runCount(of: "JSERR|autotap") { [weak self] count in
+                guard let self = self, let count = count else { return }
+                let previous = self.lastSeriousErrors
+                self.lastSeriousErrors = count
+                guard previous >= 0, count > previous else { return }
+                self.runLastError(of: "JSERR|autotap") { [weak self] text in
+                    guard let self = self else { return }
+                    self.showDiagnostics("运行中捕获到 JS 错误：\n\n\(text ?? "?")")
+                }
+            }
+        }
+    }
+
+    private func runCount(of pattern: String, completion: @escaping (Int?) -> Void) {
+        let js = """
+        (function () {
+          var e = window.__errs || [], n = 0;
+          var re = new RegExp("^(" + "\(pattern)" + ")");
+          for (var i = 0; i < e.length; i++) { if (re.test(e[i])) n++; }
+          return n;
+        })();
+        """
+        webView.evaluateJavaScript(js) { result, _ in
+            completion(result as? Int)
+        }
+    }
+
+    private func runLastError(of pattern: String, completion: @escaping (String?) -> Void) {
+        let js = """
+        (function () {
+          var e = window.__errs || [], out = [];
+          var re = new RegExp("^(" + "\(pattern)" + ")");
+          for (var i = 0; i < e.length; i++) { if (re.test(e[i])) out.push(e[i]); }
+          return out.slice(-3).join("\\n");
+        })();
+        """
+        webView.evaluateJavaScript(js) { result, _ in
+            completion(result as? String)
         }
     }
 
