@@ -562,6 +562,83 @@ def install_load_guard():
     return changed
 
 
+def install_content_fixes():
+    """原 MOD 里几处写错路径 / 漏带文件的地方（幂等）。
+
+    都是审计脚本查出来的：剧本引用的文件不存在，而正确的文件其实就在隔壁。
+    """
+    import shutil
+    fixed = 0
+
+    # 1) pre/face.ks：Hf 的颜部件写成了 Hf/face/，实际在 Hf/body/
+    #    （同一条分支里 Hx1/Hx2 用的都是 Xx/body/，可以确认是笔误）
+    rel = "data/scenario/pre/face.ks"
+    path = os.path.join(WWW, rel)
+    text = open(path, encoding="utf-8", errors="surrogateescape").read()
+    n = text.count("Hf/face/")
+    if n:
+        open(path, "w", encoding="utf-8", errors="surrogateescape").write(
+            text.replace('"Hf/face/', '"Hf/body/').replace("Hf/face/", "Hf/body/"))
+        print(f"  [已修] Hf/face -> Hf/body（{rel} × {n}）")
+        fixed += n
+    else:
+        print("  [已是最新] Hf/face -> Hf/body")
+
+    # 2) H/hand_h.ks：按钮图写成了裸的 cont.png / stop.png（实际文件是 ch/continue.png、ch/stop.png，
+    #    其它 H 场景也都是用 ch/ 下的图）
+    rel = "data/scenario/H/hand_h.ks"
+    path = os.path.join(WWW, rel)
+    text = open(path, encoding="utf-8", errors="surrogateescape").read()
+    n = text.count('graphic="cont.png"') + text.count('graphic="stop.png"')
+    if n:
+        text = text.replace('graphic="cont.png"', 'graphic="ch/continue.png"')
+        text = text.replace('graphic="stop.png"', 'graphic="ch/stop.png"')
+        open(path, "w", encoding="utf-8", errors="surrogateescape").write(text)
+        print(f"  [已修] hand_h 的按钮图 -> ch/ 下同名图（× {n}）")
+        fixed += n
+    else:
+        print("  [已是最新] hand_h 按钮图")
+
+    # 3) 大小写：剧本引用 number/extra.png，文件叫 Extra.png（iOS 文件系统区分大小写）
+    for lower, upper in (("extra.png", "Extra.png"), ("extra-.png", "Extra-.png")):
+        src = os.path.join(WWW, "data", "image", "number", upper)
+        dst = os.path.join(WWW, "data", "image", "number", lower)
+        if os.path.isfile(src) and not os.path.isfile(dst):
+            shutil.copyfile(src, dst)
+            print(f"  [已补] data/image/number/{lower}（原来只有 {upper}）")
+            fixed += 1
+
+    # 3.5) 原文几处漏写引号（引擎的解析是"到第一个 ] 为止"，所以大部分不影响，
+    #      但值里会混进一个引号，这里按原意补上）
+    for rel, old, new, why in (
+        ("data/scenario/H/nurse.ks", 'storage=00.png"', 'storage="00.png"',
+         "nurse 场景里立绘/特效层的 storage 漏了左引号"),
+        ("data/scenario/pre/macro.ks", '[macro name="def_r_fin_check]',
+         '[macro name="def_r_fin_check"]', "宏名漏了右引号"),
+        ("data/scenario/H/Hx_set.ks", 'exp="f.system_act=1 ][else]',
+         'exp="f.system_act=1" ][else]', "exp 漏了右引号，把后面的 [else] 也吞进去了"),
+    ):
+        path = os.path.join(WWW, rel)
+        text = open(path, encoding="utf-8", errors="surrogateescape").read()
+        n = text.count(old)
+        if n:
+            open(path, "w", encoding="utf-8", errors="surrogateescape").write(text.replace(old, new))
+            print(f"  [已修] {why}（{rel} × {n}）")
+            fixed += n
+        else:
+            print(f"  [已是最新] {why}")
+
+    # 4) 更新说明画面引用的 v26.jpg 没随包发出（目录里到 v25），拿 v25 顶一下，避免开图即缺图
+    upd = os.path.join(WWW, "data", "bgimage", "update")
+    src, dst = os.path.join(upd, "v25.jpg"), os.path.join(upd, "v26.jpg")
+    if os.path.isfile(src) and not os.path.isfile(dst):
+        shutil.copyfile(src, dst)
+        print("  [已补] data/bgimage/update/v26.jpg（原包未带，用 v25 顶）")
+        fixed += 1
+
+    return fixed
+
+
 def install_skip_button():
     """Drop the skip-the-quiz button into index.html (idempotent, refreshes old versions)."""
     path = os.path.join(WWW, "index.html")
@@ -596,6 +673,8 @@ def main():
     print("== 转场 ==")
     total += install_trans_guard()
     total += install_bg_guard()
+    print("== 原包内容修正 ==")
+    total += install_content_fixes()
     print("== 界面 ==")
     total += install_skip_button()
     print(f"共修改 {total} 处")
