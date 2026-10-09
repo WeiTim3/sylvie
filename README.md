@@ -100,6 +100,24 @@ error: function (str) { if (this.kag.config["debugMenu.visible"] == "true") { ..
 - **`kag.error()` 真正报错**：始终写 console，并在 debug 关闭时**弹一次**说明
   （同一条消息只弹一次），这样以后再出问题至少能看见，不会又变成「卡住没反应」
 
+### 6. 黑屏：转场回调只挂在 `animationend` 上
+
+`tyrano/libs.js` 的 `$.trans` 是这么干的：
+
+```js
+j_obj.addClass('animated ' + method).one("animationend", function () {
+    ...; if (callback) { callback(); }      // ← 显示图层、推进剧情都在这里
+});
+```
+
+也就是说 **CSS 动画不放完，回调就永远不执行**：图层停在 `opacity:0`（黑屏），
+剧情也不再往下走。实测在本机浏览器里点配置界面的「完成」（→ `*awake` → 标题画面）
+就正好卡在这儿 —— 标题画面那个 `[bg time="500" method="crossfade"]` 转场没有回调。
+
+修法：`$.trans` 加一个**定时兜底** —— 超过动画时长（+150ms）还没收到 `animationend`，
+就当作动画放完了，该显示的显示、该调的回调调（同一个回调只会执行一次）。
+这样即使系统开了「减弱动态效果」、页面被挂起、动画时钟不走，也不会再黑屏。
+
 ### 5. 读档后屏幕上的按钮不再是哑巴
 
 `[button]` 的点击处理里有：

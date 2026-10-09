@@ -397,6 +397,65 @@ LOAD_EDITS = [
 ]
 
 
+TRANS_NEW = '''$.trans = function(method, j_obj, time, mode, callback) {
+        if(method=="crossfade") { method = "fadeIn"; }
+        else if(_map_conv_method[method]){ method = _map_conv_method[method]; }
+        var __ms = parseInt(time) || 0;
+        var __done = false;
+        var __finish = function(run_callback){
+            if(__done){ return; }
+            __done = true;
+            try { j_obj.off("webkitAnimationEnd mozAnimationEnd MSAnimationEnd oanimationend animationend"); } catch(e){}
+            try { j_obj.css("animation-duration",""); } catch(e){}
+            if(run_callback && callback){ callback(); }
+        };
+        j_obj.css("animation-duration", __ms + "ms");
+        /* CSS 动画不一定跑得起来（系统开了「减弱动态效果」、页面被挂起、动画时钟不走……），
+           而这里原来的回调只在 animationend 里执行 —— 一旦事件不来，
+           图层就永远停在 opacity:0（黑屏），或者剧情干脆卡住。
+           加一个定时兜底：超过动画时长还没收到事件，就当它放完了。 */
+        setTimeout(function(){
+            if(mode == "hide"){ try { j_obj.remove(); } catch(e){} }
+            __finish(mode != "hide");
+        }, __ms + 150);
+        if (mode == "hide") {
+            j_obj.show();
+            method = $.replaceAll(method,"In","Out");
+            j_obj.addClass('animated ' + method).one("webkitAnimationEnd mozAnimationEnd MSAnimationEnd oanimationend animationend", function() {
+                __finish(false);
+                try { $(this).remove(); } catch(e){}
+            });
+        } else if (mode == "show") {
+            j_obj.show();
+            j_obj.addClass('animated ' + method).one("webkitAnimationEnd mozAnimationEnd MSAnimationEnd oanimationend animationend", function() {
+                try { j_obj.removeClass('animated ' + method); } catch(e){}
+                __finish(true);
+            });
+        }
+    };'''
+
+
+def install_trans_guard():
+    """Transitions must not depend on animationend firing (idempotent)."""
+    rel = "tyrano/libs.js"
+    path = os.path.join(WWW, rel)
+    with open(path, encoding="utf-8", errors="surrogateescape") as fh:
+        text = fh.read()
+    if '__finish(mode != "hide")' in text:
+        print("  [已是最新] 转场兜底")
+        return 0
+    new_text, n = re.subn(
+        r"\$\.trans = function\(method, j_obj, time, mode, callback\) \{.*?\n    \};",
+        lambda m: TRANS_NEW, text, count=1, flags=re.S)
+    if n == 0:
+        print(f"  [警告] {rel}: 没找到 $.trans")
+        return 0
+    with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
+        fh.write(new_text)
+    print("  [已加] 转场兜底 —— CSS 动画不跑也不会黑屏/卡住")
+    return 1
+
+
 def install_load_guard():
     """Make the save-load path fail-safe (idempotent)."""
     rel = "tyrano/plugins/kag/kag.menu.js"
@@ -457,6 +516,8 @@ def main():
     total += patch_scenarios()
     print("== 读档兜底 ==")
     total += install_load_guard()
+    print("== 转场 ==")
+    total += install_trans_guard()
     print("== 界面 ==")
     total += install_skip_button()
     print(f"共修改 {total} 处")
