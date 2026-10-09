@@ -52,6 +52,26 @@ ffmpeg -i x.webm -c:v h264_videotoolbox -b:v 1200k -pix_fmt yuv420p \
 `storage = replaceAll(storage, ".ogg", ".m4a")`，所以磁盘上是 `.m4a` 就够了。
 视频则相反，剧本里的 `.webm` 引用要改成 `.mp4`（35 处，在 `pre/macro.ks` 和 `H/video.ks`）。
 
+### 3. 界面：跳过答题按钮
+
+答题环节（`intro/opening.ks` 里那 9 道题）**答错一题就 game over**。
+`tools/patch_www.py` 会往 `index.html` 里塞一个「跳过答题」按钮：
+
+- 只在答题环节出现 —— 起止行是从剧本里现算的（找 `[button target="*ok"` 和 `*tgcs`），
+  改剧情也不会失准；标题画面、日常剧情里不会出现
+- 点击后跳到 `*tgcs`（全对才走的那段「通過測試了！男人告辭」，立绘状态在那一段里重建，
+  不能直接跳到 `step1.ks`）
+- 位置固定在右上角：横屏下正好落在游戏画面右侧的黑边里，不压任何按钮
+- 两个坑：
+  1. 引擎把点击绑在 `document` 上，按钮里必须 `stopPropagation()`，
+     否则这一下会同时被当成「推进剧情」
+  2. `nextOrder()` 在文字逐字显示时（`is_adding_text`）会直接 `return false`，
+     点太早会没反应 —— 所以先打开引擎自己的 `is_click_text`（就是「点一下把这句话显示完」的开关），
+     再跳
+
+不想要这个按钮：把它从 `index.html` 里删掉即可（`<!-- ===== 跳过答题按钮` 到对应的 `</script>`），
+或者干脆不跑这一步。
+
 ### 2. 引擎脚本修正（必须）
 
 | 文件 | 改动 |
