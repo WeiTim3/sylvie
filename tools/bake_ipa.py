@@ -4,8 +4,7 @@
 The shell app looks for the game in this order:
 
     1. <App Documents>/www          (user-supplied, wins if present)
-    2. /var/mobile/Media/ver769/www
-    3. <App Bundle>/www             (what this script fills in)
+    2. <App Bundle>/www             (what this script fills in)
 
 so baking makes the app self-contained: install one file, nothing to copy.
 

@@ -85,8 +85,7 @@ App 按顺序找 `index.html`：
 
 ```
 1. <App Documents>/www              ← 常用（可用「文件」App 传）
-2. /var/mobile/Media/ver769/www      ← 越狱捷径
-3. <App Bundle>/www                  ← 自包含版
+2. <App Bundle>/www                  ← 自包含版（烘焙过的 IPA 走这条）
 ```
 
 把改好的 `www` 整个放进去即可。1.5 GB / 13,000 个文件，用 Filza 比「文件」App 快得多。

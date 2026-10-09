@@ -32,7 +32,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             candidates.append(docs.appendingPathComponent("www"))
         }
-        candidates.append(URL(fileURLWithPath: "/var/mobile/Media/ver769/www"))
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent("www") {
             candidates.append(bundled)
         }
