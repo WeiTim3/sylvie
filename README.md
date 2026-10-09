@@ -91,6 +91,32 @@ App 按顺序找 `index.html`：
 
 把改好的 `www` 整个放进去即可。1.5 GB / 13,000 个文件，用 Filza 比「文件」App 快得多。
 
+## 上面这些修正是有脚本的
+
+`tools/` 里的脚本把 APK 直接变成 iOS 能跑的 `www`，不用手工改文件：
+
+```sh
+# 1. 解出 APK 里的游戏本体（assets/ 就是 www 的内容）
+unzip 希露薇の交配計劃.apk 'assets/index.html' 'assets/tyrano/*' 'assets/data/*' \
+      'assets/package.json' 'assets/tyrano_player.js' -d apk
+
+# 2. 媒体转码（45 个 .ogg -> .m4a，25 个 .webm -> .mp4，约 1 分钟）
+sh tools/transcode.sh apk/assets
+
+# 3. 打引擎补丁（幂等，可反复执行；做了什么它自己会打印）
+python3 tools/patch_www.py apk/assets
+
+# 4. （可选）烘焙成自包含 IPA，装完即玩
+python3 tools/bake_ipa.py build/SylvieGame-unsigned.ipa apk/assets build/SylvieGame-baked.ipa
+```
+
+`tools/serve.py` 是本机预览用的静态服务器（支持 Range，`-m http.server` 不支持，
+WebKit 就没法 seek `<video>`）：
+
+```sh
+python3 tools/serve.py 8765 apk/assets        # 浏览器开 http://127.0.0.1:8765/index.html
+```
+
 ### 一个兜底机制：内容覆盖
 
 `LocalServer` 会在服务文件前先看一眼 App 包里的 `patches/<相对路径>`，命中就优先返回它。
