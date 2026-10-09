@@ -211,6 +211,137 @@ SKIP_BUTTON = r'''
 '''
 
 
+# --------------------------------------------------------------------------
+# 读档兜底
+#
+# 「点 Continue → 进游戏 → 点什么都没反应」的根因是读档这条路上一抛异常就没人管了：
+# 事件层在异常前已经被 hideEventLayer() 关掉，而 kag.tag.js 的点击处理里有
+#     if (layer_event 不可见) return false
+# 所以整局再也收不到点击。异常来源至少有三种：
+#   1. 存档结构不对（比如从别的版本 / 别的 configSave 格式存下来的）→ getSaveData 返回的不是对象
+#   2. 某个 .event-setting-element 缺 data-event-pm → JSON.parse(undefined) 抛
+#   3. 存档里的 current_order_index 在当前版本的剧本文件里已经不存在
+# 这里把每处都包住，失败就走 __sylvie_load_fail：恢复交互 + 回标题 + 说明原因。
+# --------------------------------------------------------------------------
+
+LOAD_GUARD_JS = r"""
+
+/* ===== 读档兜底（本移植版加入，不是原包内容）=====
+   读档路上有几处会抛异常（存档结构不对 / 索引超出剧本 / 某个 tag 找不到……），
+   一抛异常整局就点不动了：事件层是关着的，引擎也不再推进。
+   这里保证任何一步失败都能恢复成可操作的状态，并且告诉玩家发生了什么。 */
+window.__sylvie_load_fail = function (e) {
+  var msg = (e && e.message) ? e.message : String(e);
+  try {
+    var k = TYRANO.kag;
+    k.stat.is_adding_text = false;   // 这几个标志任何一个残留，点击都会被引擎忽略
+    k.stat.is_click_text = false;
+    k.stat.is_strong_stop = false;
+    k.stat.is_stop = false;
+    k.layer.showEventLayer();
+  } catch (_) {}
+  try {
+    TYRANO.kag.ftag.nextOrderWithIndex(-1, "sys/title_screen.ks");   // 游戏自己也是这么回标题的
+  } catch (_) {
+    try { TYRANO.kag.ftag.nextOrderWithLabel("*title", "sys/title_screen.ks"); } catch (__) {}
+  }
+  try {
+    alert("读档失败，已经回到标题画面。\n\n"
+        + "这个存档多半来自旧版本的数据（各版本的存档不通用）。\n"
+        + "选 Start 重新开始即可。\n\n"
+        + "详情：" + msg);
+  } catch (_) {}
+};
+
+/* 读档后如果事件层一直关着，说明有东西没跑完（媒体没起来、某一步悄悄失败……），
+   这时把交互恢复回来，免得整屏点不动。 */
+window.__sylvie_watch_load = function () {
+  var n = 0;
+  var timer = setInterval(function () {
+    n++;
+    var k = window.TYRANO && TYRANO.kag;
+    if (!k || !k.layer) { clearInterval(timer); return; }
+    var hidden = k.layer.layer_event.css("display") == "none";
+    if (!hidden) { clearInterval(timer); return; }          // 正常了
+    if (k.stat.is_adding_text == true) return;              // 正在逐字显示，正常
+    if (k.stat.is_strong_stop == true) { if (n > 12) clearInterval(timer); return; }
+    if (n > 4) {                                            // 2 秒还没恢复，强制恢复
+      try { k.stat.is_stop = false; k.layer.showEventLayer(); } catch (_) {}
+      clearInterval(timer);
+    }
+  }, 500);
+};
+"""
+
+LOAD_EDITS = [
+    # (old, new, 说明)
+    (
+        'getSaveData:function(){var tmp_array=$.getStorage(this.kag.config.projectID+"_tyrano_data",'
+        'this.kag.config.configSave);if(tmp_array)return JSON.parse(tmp_array);else{'
+        'tmp_array=new Array;var root={kind:"save"};',
+        'getSaveData:function(){var __raw=null,__root=null;try{__raw=$.getStorage('
+        'this.kag.config.projectID+"_tyrano_data",this.kag.config.configSave);if(__raw){'
+        '__root=JSON.parse(__raw);if(__root&&typeof __root=="object"&&__root.data instanceof Array'
+        '&&__root.data.length)return __root}}catch(__e){}if(1){'
+        'var tmp_array=new Array;var root={kind:"save"};',
+        "存档结构不对时不再往外抛异常（否则点 Continue 直接卡死）",
+    ),
+    (
+        'loadGame:function(num){var array_save=this.getSaveData();var array=array_save.data;'
+        'if(array[num].save_date=="")return;var auto_next="no";'
+        'if(array[num].stat.load_auto_next==true)auto_next="yes";'
+        'this.loadGameData($.extend(true,{},array[num]),{"auto_next":auto_next})},',
+        'loadGame:function(num){try{var array_save=this.getSaveData();var array=array_save.data;'
+        'if(!array||!array[num])return;if(array[num].save_date=="")return;var auto_next="no";'
+        'if(array[num].stat&&array[num].stat.load_auto_next==true)auto_next="yes";'
+        'if(window.__sylvie_watch_load)window.__sylvie_watch_load();'
+        'this.loadGameData($.extend(true,{},array[num]),{"auto_next":auto_next})}catch(e){'
+        'window.__sylvie_load_fail(e)}},',
+        "读档整段包住，失败时恢复交互并给出说明",
+    ),
+    (
+        '$(".event-setting-element").each(function(){var j_elm=$(this);'
+        'var kind=j_elm.attr("data-event-tag");var pm=JSON.parse(j_elm.attr("data-event-pm"));'
+        'var event_tag=object(tyrano.plugin.kag.tag[kind]);event_tag.setEvent(j_elm,pm)});',
+        '$(".event-setting-element").each(function(){try{var j_elm=$(this);'
+        'var kind=j_elm.attr("data-event-tag");var pm=JSON.parse(j_elm.attr("data-event-pm"));'
+        'var event_tag=object(tyrano.plugin.kag.tag[kind]);'
+        'if(event_tag&&event_tag.setEvent)event_tag.setEvent(j_elm,pm)}catch(__e){}});',
+        "事件重绑定的异常不再中断读档（否则 make.ks 那一步永远不会执行）",
+    ),
+    (
+        'this.kag.clearTmpVariable();\nthis.kag.ftag.nextOrderWithIndex(data.current_order_index,'
+        'data.stat.current_scenario,true,insert,"yes")},',
+        'this.kag.clearTmpVariable();try{this.kag.ftag.nextOrderWithIndex(data.current_order_index,'
+        'data.stat.current_scenario,true,insert,"yes")}catch(e){window.__sylvie_load_fail(e)}},',
+        "索引/剧本文件对不上时不再静默卡死",
+    ),
+]
+
+
+def install_load_guard():
+    """Make the save-load path fail-safe (idempotent)."""
+    rel = "tyrano/plugins/kag/kag.menu.js"
+    path = os.path.join(WWW, rel)
+    with open(path, encoding="utf-8", errors="surrogateescape") as fh:
+        text = fh.read()
+    if "__sylvie_load_fail" in text:
+        print("  [已是最新] 读档兜底")
+        return 0
+    changed = 0
+    for old, new, desc in LOAD_EDITS:
+        if old not in text:
+            print(f"  [警告] {rel}: 找不到目标片段 —— {desc}")
+            continue
+        text = text.replace(old, new, 1)
+        changed += 1
+    text = text.rstrip("\n") + "\n" + LOAD_GUARD_JS
+    with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
+        fh.write(text)
+    print(f"  [已加] 读档兜底（{changed}/{len(LOAD_EDITS)} 处改动 + 兜底函数）")
+    return changed
+
+
 def install_skip_button():
     """Drop the skip-the-quiz button into index.html (idempotent, refreshes old versions)."""
     path = os.path.join(WWW, "index.html")
@@ -240,6 +371,8 @@ def main():
         total += patch_file(rel, old, new, desc)
     print("== 剧本媒体引用 ==")
     total += patch_scenarios()
+    print("== 读档兜底 ==")
+    total += install_load_guard()
     print("== 界面 ==")
     total += install_skip_button()
     print(f"共修改 {total} 处")

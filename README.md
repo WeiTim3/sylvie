@@ -52,6 +52,29 @@ ffmpeg -i x.webm -c:v h264_videotoolbox -b:v 1200k -pix_fmt yuv420p \
 `storage = replaceAll(storage, ".ogg", ".m4a")`，所以磁盘上是 `.m4a` 就够了。
 视频则相反，剧本里的 `.webm` 引用要改成 `.mp4`（35 处，在 `pre/macro.ks` 和 `H/video.ks`）。
 
+### 3. 读档兜底（点 Continue 卡死）
+
+「读档进游戏后点什么都没反应」的根因：**读档这条路上任何一处抛异常，整局就死了** ——
+异常发生前 `hideEventLayer()` 已经把事件层关掉，而 `kag.tag.js` 的点击处理里有
+
+```js
+if (that.kag.layer.layer_event.css("display") == "none" && is_strong_stop != true) return false;
+```
+
+所以事件层关着 = 所有点击被吞掉。可抛异常的地方至少三处：
+
+1. `getSaveData()` —— 存档结构不对（比如来自别的版本、别种 `configSave` 格式）时
+   `JSON.parse` 出来的不是对象，后面 `array[num].save_date` 直接 TypeError
+2. `.event-setting-element` 缺 `data-event-pm` 时 `JSON.parse(undefined)` 抛，
+   **`nextOrderWithIndex(…, make.ks, …)` 就永远不会执行**（状态停在半路）
+3. 存档里的 `current_order_index` 在当前剧本文件里已经不存在
+
+`tools/patch_www.py` 的 `install_load_guard()` 把每处都包住，失败时执行
+`__sylvie_load_fail()`：清掉 `is_adding_text` / `is_click_text` / `is_strong_stop` / `is_stop`
+这四个只要残留就会让点击失效的标志 → `showEventLayer()` → 弹一句话说明 → 回标题画面
+（用游戏自己的 `sys/title_screen.ks`）。另有一个 `__sylvie_watch_load()` 看门狗：
+读档后 2 秒内事件层还是关着（媒体没起来、某步悄悄失败）就强制恢复交互。
+
 ### 3. 界面：跳过答题按钮
 
 答题环节（`intro/opening.ks` 里那 9 道题）**答错一题就 game over**。
