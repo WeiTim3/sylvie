@@ -80,6 +80,24 @@ EDITS = [
         "引擎报错不再无声无息（debug 关着时原来什么都不做，出错了只表现为卡住）",
     ),
     (
+        "tyrano/plugins/kag/kag.tag_system.js",
+        'this.kag.getStack("if").bool',
+        '(function(){var __s=this.kag.getStack("if");if(!__s)'
+        '{__s={bool:false,deep:pm.deep_if};this.kag.pushStack("if",__s)}'
+        'return __s.bool}).call(this)',
+        "[elsif]/[else] 的 if 栈为空时不再抛异常 —— 读档/快照落点落在 if 块中间就会这样，"
+        "症状正是「整屏黑 + 点什么都没反应」",
+    ),
+    (
+        "tyrano/plugins/kag/kag.tag_system.js",
+        'tyrano.plugin.kag.tag["return"]={start:function(){var pm=this.kag.getStack("call");'
+        'if(pm.caller&&pm.caller.storage)',
+        'tyrano.plugin.kag.tag["return"]={start:function(){var pm=this.kag.getStack("call");'
+        'if(!pm){this.kag.ftag.nextOrder();return}'
+        'if(pm.caller&&pm.caller.storage)',
+        "[return] 在调用栈为空时不再抛异常（和 [elsif] 同一类问题）",
+    ),
+    (
         "data/system/Config.tjs",
         ";configSave     = file",
         ";configSave     = webstorage_compress",
