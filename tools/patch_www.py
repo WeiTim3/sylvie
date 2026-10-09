@@ -74,8 +74,9 @@ EDITS = [
         'try{console.error("[tyrano]",err)}catch(_){}try{'
         'if(this.kag.config["debugMenu.visible"]=="true"){$.error_message(err)}'
         'else{if(!window.__sylvie_errors)window.__sylvie_errors={};'
+        'window.__sylvie_err_n=(window.__sylvie_err_n||0)+1;'
         'if(!window.__sylvie_errors[err]){window.__sylvie_errors[err]=1;'
-        'alert("游戏报错（已跳过继续）：\\n\\n"+err)}}}catch(_){}},',
+        'if(window.__sylvie_err_n<=3)alert("游戏报错（已跳过继续）：\\n\\n"+err)}}}catch(_){}},',
         "引擎报错不再无声无息（debug 关着时原来什么都不做，出错了只表现为卡住）",
     ),
     (
@@ -283,6 +284,32 @@ window.__sylvie_eval_retry = function (exp, err) {
    is_strong_stop 清掉，而 [button] 的点击处理里写着
        if (is_strong_stop != true && fix == "false") return false;
    —— 于是屏幕上的按钮全变哑巴。这里把它恢复回来。 */
+/* 读档 / [awakegame] 醒来之后，把背景层恢复正常。
+   存档（包括 [sleepgame] 的快照）是把图层 HTML 原样存下来的 —— 如果那一下
+   正好拍在转场中途，背景层会带着 opacity:0 被存进去，还原出来就是一片黑，
+   而且只在这一个时机才会发生（所以是"有概率黑屏"）。 */
+window.__sylvie_fix_layers = function () {
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    try {
+      var k = TYRANO.kag;
+      ["fore", "back"].forEach(function (side) {
+        try {
+          var l = k.layer.getLayer("base", side);
+          if (!l || !l.length) { return; }
+          l.css("display", "block");
+          var op = parseFloat(l.css("opacity"));
+          if (!(op > 0.99)) { l.css("opacity", 1); }
+          l.removeClass("animated");
+          l.css("animation-duration", "");
+        } catch (e) {}
+      });
+    } catch (e) {}
+    if (tries > 8) { clearInterval(timer); }
+  }, 600);
+};
+
 window.__sylvie_restore_choice = function () {
   var tries = 0;
   var timer = setInterval(function () {
@@ -391,7 +418,7 @@ LOAD_EDITS = [
         'data.stat.current_scenario,true,insert,"yes")},',
         'this.kag.clearTmpVariable();try{this.kag.ftag.nextOrderWithIndex(data.current_order_index,'
         'data.stat.current_scenario,true,insert,"yes")}catch(e){window.__sylvie_load_fail(e)}'
-        'if(window.__sylvie_restore_choice)window.__sylvie_restore_choice()},',
+        'if(window.__sylvie_restore_choice)window.__sylvie_restore_choice();if(window.__sylvie_fix_layers)window.__sylvie_fix_layers()},',
         "索引/剧本文件对不上时不再静默卡死",
     ),
 ]
@@ -407,6 +434,8 @@ TRANS_NEW = '''$.trans = function(method, j_obj, time, mode, callback) {
             __done = true;
             try { j_obj.off("webkitAnimationEnd mozAnimationEnd MSAnimationEnd oanimationend animationend"); } catch(e){}
             try { j_obj.css("animation-duration",""); } catch(e){}
+            /* 动画类留着的话，图层会带着 animated fadeIn 被存档存下来 */
+            try { j_obj.removeClass('animated ' + method); } catch(e){}
             if(run_callback && callback){ callback(); }
         };
         j_obj.css("animation-duration", __ms + "ms");
@@ -441,7 +470,7 @@ BG_NEW = '''tag.bg={vital:["storage"],pm:{storage:"",method:"crossfade",wait:"tr
    这里加一个定时兜底，保证剧情一定会往下走（正常走完时 __bg_done 为 true，不会重复推进）。 */
 var __bg_done=false;var __bg_advance=function(){if(__bg_done)return;__bg_done=true;if(pm.wait=="true"){try{that.kag.layer.showEventLayer()}catch(e){}that.kag.ftag.nextOrder()}};
 if(pm.wait=="true")setTimeout(__bg_advance,parseInt(pm.time)+1500);
-this.kag.preload(storage_url,function(){var j_old_bg=that.kag.layer.getLayer("base","fore");var j_new_bg=j_old_bg.clone(false);j_new_bg.css("background-image","url("+storage_url+")");j_new_bg.css("display","none");j_old_bg.after(j_new_bg);that.kag.ftag.hideNextImg();that.kag.layer.updateLayer("base","fore",j_new_bg);if(pm.wait=="true")that.kag.layer.hideEventLayer();pm.time=that.kag.cutTimeWithSkip(pm.time);if(pm.cross=="true")$.trans(pm.method,j_old_bg,parseInt(pm.time),"hide",function(){j_old_bg.remove()});$.trans(pm.method,j_new_bg,parseInt(pm.time),"show",function(){j_new_bg.css("opacity",1);try{if(pm.cross=="false")j_old_bg.remove()}catch(e){}__bg_advance()})});
+this.kag.preload(storage_url,function(){var j_old_bg=that.kag.layer.getLayer("base","fore");var j_new_bg=j_old_bg.clone(false);j_new_bg.css("background-image","url("+storage_url+")");j_new_bg.css("display","none");j_new_bg.css("opacity",1);j_new_bg.removeClass("animated");j_old_bg.after(j_new_bg);j_new_bg.show();that.kag.ftag.hideNextImg();that.kag.layer.updateLayer("base","fore",j_new_bg);if(pm.wait=="true")that.kag.layer.hideEventLayer();pm.time=that.kag.cutTimeWithSkip(pm.time);if(pm.cross=="true")$.trans(pm.method,j_old_bg,parseInt(pm.time),"hide",function(){j_old_bg.remove()});$.trans(pm.method,j_new_bg,parseInt(pm.time),"show",function(){j_new_bg.css("opacity",1);try{if(pm.cross=="false")j_old_bg.remove()}catch(e){}__bg_advance()})});
 if(pm.wait=="false")this.kag.ftag.nextOrder()}};'''
 
 
@@ -451,7 +480,7 @@ def install_bg_guard():
     path = os.path.join(WWW, rel)
     with open(path, encoding="utf-8", errors="surrogateescape") as fh:
         text = fh.read()
-    if "__bg_advance" in text:
+    if BG_NEW in text:
         print("  [已是最新] 背景标签兜底")
         return 0
     new_text, n = re.subn(r"tag\.bg=\{vital:\[.storage.\].*?if\(pm\.wait==.false.\)this\.kag\.ftag\.nextOrder\(\)\}\};",
@@ -471,7 +500,7 @@ def install_trans_guard():
     path = os.path.join(WWW, rel)
     with open(path, encoding="utf-8", errors="surrogateescape") as fh:
         text = fh.read()
-    if '__finish(mode != "hide")' in text:
+    if TRANS_NEW in text:
         print("  [已是最新] 转场兜底")
         return 0
     new_text, n = re.subn(
@@ -492,7 +521,7 @@ def install_load_guard():
     path = os.path.join(WWW, rel)
     with open(path, encoding="utf-8", errors="surrogateescape") as fh:
         text = fh.read()
-    if "__sylvie_restore_choice" in text:
+    if "__sylvie_fix_layers" in text and "__sylvie_restore_choice" in text:
         print("  [已是最新] 读档兜底")
         return 0
     # 旧版本先摘掉（追加过的整块），再重新追加，脚本升级不用手工处理

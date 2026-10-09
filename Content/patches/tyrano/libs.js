@@ -574,6 +574,8 @@
             __done = true;
             try { j_obj.off("webkitAnimationEnd mozAnimationEnd MSAnimationEnd oanimationend animationend"); } catch(e){}
             try { j_obj.css("animation-duration",""); } catch(e){}
+            /* 动画类留着的话，图层会带着 animated fadeIn 被存档存下来 */
+            try { j_obj.removeClass('animated ' + method); } catch(e){}
             if(run_callback && callback){ callback(); }
         };
         j_obj.css("animation-duration", __ms + "ms");

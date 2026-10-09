@@ -19,7 +19,7 @@ false;if(options.bgm_over=="false"){var map_se=this.kag.tmp.map_se;for(var key i
 pm)}for(key in this.kag.stat.current_se){var pm_obj=this.kag.stat.current_se[key];pm_obj["stop"]="true";this.kag.ftag.startTag("playse",pm_obj)}}if(this.kag.stat.cssload)for(file in this.kag.stat.cssload){var style='<link rel="stylesheet" href="'+file+"?"+Math.floor(Math.random()*1E7)+'">';$("head link:last").after(style)}else this.kag.stat.cssload={};if(!this.kag.stat.current_bgmovie)this.kag.stat.current_bgmovie={storage:"",volume:""};if(this.kag.config.useCamera=="true"){$(".layer_camera").css({"-animation-name":"",
 "-animation-duration":"","-animation-play-state":"","-animation-delay":"","-animation-iteration-count":"","-animation-direction":"","-animation-fill-mode":"","-animation-timing-function":""});for(key in this.kag.stat.current_camera){var a3d_define={frames:{"0%":{trans:this.kag.stat.current_camera[key]},"100%":{trans:this.kag.stat.current_camera[key]}},config:{duration:"5ms",state:"running",easing:"ease"},complete:function(){}};if(key=="layer_camera"){$(".layer_camera").css("-webkit-transform-origin",
 "center center");setTimeout(function(){$(".layer_camera").a3d(a3d_define)},1)}else{$("."+key+"_fore").css("-webkit-transform-origin","center center");setTimeout(function(){$("."+key+"_fore").a3d(a3d_define)},1)}}}$(".tyrano_base").find("video").remove();this.kag.tmp.video_playing=false;if(this.kag.stat.current_bgmovie["storage"]!=""){var vstorage=this.kag.stat.current_bgmovie["storage"];var volume=this.kag.stat.current_bgmovie["volume"];var pm={storage:vstorage,volume:volume,stop:"true"};this.kag.tmp.video_playing=
-false;this.kag.ftag.startTag("bgmovie",pm)}this.kag.setCursor(this.kag.stat.current_cursor);if(this.kag.stat.visible_menu_button==true)$(".button_menu").show();else $(".button_menu").hide();$(".event-setting-element").each(function(){try{var j_elm=$(this);var kind=j_elm.attr("data-event-tag");var pm=JSON.parse(j_elm.attr("data-event-pm"));var event_tag=object(tyrano.plugin.kag.tag[kind]);if(event_tag&&event_tag.setEvent)event_tag.setEvent(j_elm,pm)}catch(__e){}});var insert={name:"call",pm:{storage:"make.ks","auto_next":auto_next},val:""};this.kag.clearTmpVariable();try{this.kag.ftag.nextOrderWithIndex(data.current_order_index,data.stat.current_scenario,true,insert,"yes")}catch(e){window.__sylvie_load_fail(e)}if(window.__sylvie_restore_choice)window.__sylvie_restore_choice()},setMenu:function(j_obj,cb){var that=this;var layer_menu=this.kag.layer.getMenuLayer();j_obj.find(".menu_close").click(function(e){layer_menu.fadeOut(300,function(){layer_menu.empty();if(typeof cb=="function")cb()});if(that.kag.stat.visible_menu_button==true)$(".button_menu").show()});j_obj.hide();layer_menu.append(j_obj);layer_menu.show();$.preloadImgCallback(layer_menu,function(){j_obj.fadeIn(300);
+false;this.kag.ftag.startTag("bgmovie",pm)}this.kag.setCursor(this.kag.stat.current_cursor);if(this.kag.stat.visible_menu_button==true)$(".button_menu").show();else $(".button_menu").hide();$(".event-setting-element").each(function(){try{var j_elm=$(this);var kind=j_elm.attr("data-event-tag");var pm=JSON.parse(j_elm.attr("data-event-pm"));var event_tag=object(tyrano.plugin.kag.tag[kind]);if(event_tag&&event_tag.setEvent)event_tag.setEvent(j_elm,pm)}catch(__e){}});var insert={name:"call",pm:{storage:"make.ks","auto_next":auto_next},val:""};this.kag.clearTmpVariable();try{this.kag.ftag.nextOrderWithIndex(data.current_order_index,data.stat.current_scenario,true,insert,"yes")}catch(e){window.__sylvie_load_fail(e)}if(window.__sylvie_restore_choice)window.__sylvie_restore_choice();if(window.__sylvie_fix_layers)window.__sylvie_fix_layers()},setMenu:function(j_obj,cb){var that=this;var layer_menu=this.kag.layer.getMenuLayer();j_obj.find(".menu_close").click(function(e){layer_menu.fadeOut(300,function(){layer_menu.empty();if(typeof cb=="function")cb()});if(that.kag.stat.visible_menu_button==true)$(".button_menu").show()});j_obj.hide();layer_menu.append(j_obj);layer_menu.show();$.preloadImgCallback(layer_menu,function(){j_obj.fadeIn(300);
 layer_menu.find(".block_menu").fadeOut(300)},that)},hideMenu:function(){},getSaveData:function(){var __raw=null,__root=null;try{__raw=$.getStorage(this.kag.config.projectID+"_tyrano_data",this.kag.config.configSave);if(__raw){__root=JSON.parse(__raw);if(__root&&typeof __root=="object"&&__root.data instanceof Array&&__root.data.length)return __root}}catch(__e){}if(1){var tmp_array=new Array;var root={kind:"save"};var save_slot_num=this.kag.config.configSaveSlotNum||5;for(var i=0;i<save_slot_num;i++){var json={};json.title=$.lang("not_saved");json.current_order_index=0;json.save_date="";json.img_data="";json.stat={};tmp_array.push(json)}root.data=
 tmp_array;return root}},displayLog:function(){var that=this;this.kag.stat.is_skip=false;var j_save=$("<div></div>");this.kag.html("backlog",{"novel":$.novel},function(html_str){var j_menu=$(html_str);var layer_menu=that.kag.layer.getMenuLayer();layer_menu.empty();layer_menu.append(j_menu);layer_menu.find(".menu_close").click(function(){layer_menu.fadeOut(300,function(){layer_menu.empty()});if(that.kag.stat.visible_menu_button==true)$(".button_menu").show()});layer_menu.find(".button_smart").hide();
 if($.userenv()!="pc"){layer_menu.find(".button_smart").show();layer_menu.find(".button_arrow_up").click(function(){var now=layer_menu.find(".log_body").scrollTop();var pos=now-60;layer_menu.find(".log_body").animate({scrollTop:pos},{queue:false})});layer_menu.find(".button_arrow_down").click(function(){var now=layer_menu.find(".log_body").scrollTop();var pos=now+60;layer_menu.find(".log_body").animate({scrollTop:pos},{queue:false})})}var log_str="";var array_log=that.kag.variable.tf.system.backlog;
@@ -58,6 +58,32 @@ window.__sylvie_eval_retry = function (exp, err) {
    is_strong_stop 清掉，而 [button] 的点击处理里写着
        if (is_strong_stop != true && fix == "false") return false;
    —— 于是屏幕上的按钮全变哑巴。这里把它恢复回来。 */
+/* 读档 / [awakegame] 醒来之后，把背景层恢复正常。
+   存档（包括 [sleepgame] 的快照）是把图层 HTML 原样存下来的 —— 如果那一下
+   正好拍在转场中途，背景层会带着 opacity:0 被存进去，还原出来就是一片黑，
+   而且只在这一个时机才会发生（所以是"有概率黑屏"）。 */
+window.__sylvie_fix_layers = function () {
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    try {
+      var k = TYRANO.kag;
+      ["fore", "back"].forEach(function (side) {
+        try {
+          var l = k.layer.getLayer("base", side);
+          if (!l || !l.length) { return; }
+          l.css("display", "block");
+          var op = parseFloat(l.css("opacity"));
+          if (!(op > 0.99)) { l.css("opacity", 1); }
+          l.removeClass("animated");
+          l.css("animation-duration", "");
+        } catch (e) {}
+      });
+    } catch (e) {}
+    if (tries > 8) { clearInterval(timer); }
+  }, 600);
+};
+
 window.__sylvie_restore_choice = function () {
   var tries = 0;
   var timer = setInterval(function () {
