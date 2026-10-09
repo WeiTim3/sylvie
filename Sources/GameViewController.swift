@@ -32,6 +32,12 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     private var diagText: UITextView!
     private var diagButton: UIButton!
 
+    // Side toolbar (lives in the letterbox bar so it never covers the picture)
+    private var toolbar: UIStackView!
+    private var skipButton: UIButton!
+    private var autoButton: UIButton!
+    private var stateTimer: Timer?
+
     // MARK: - Haptics
 
     private let tapHaptic = UIImpactFeedbackGenerator(style: .light)
@@ -315,36 +321,19 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         }, completion: { _ in
             splash.isHidden = true
             splash.removeFromSuperview()
-            UIView.animate(withDuration: 0.6) { self.diagButton?.alpha = 0.22 }
+            UIView.animate(withDuration: 0.6) { self.toolbar?.alpha = 1 }
         })
     }
 
     // MARK: - Gestures
 
-    // Touch gestures are NOT swallowed by the web view: the engine still gets
-    // every tap it needs to advance the story.
+    // The old hidden gestures (long-press / two-finger / three-finger) are gone:
+    // the side toolbar replaces them, and it is discoverable. What stays is the
+    // haptic tick on a plain tap -- that is feedback, not a gesture.
     private func setUpGestures() {
-        let hold = UILongPressGestureRecognizer(target: self, action: #selector(onHold(_:)))
-        hold.minimumPressDuration = 0.45
-        hold.numberOfTouchesRequired = 1
-        hold.cancelsTouchesInView = true
-        webView.addGestureRecognizer(hold)
-
-        let twoFinger = UITapGestureRecognizer(target: self, action: #selector(onTwoFingerTap))
-        twoFinger.numberOfTouchesRequired = 2
-        twoFinger.cancelsTouchesInView = true
-        webView.addGestureRecognizer(twoFinger)
-
-        let threeFinger = UITapGestureRecognizer(target: self, action: #selector(onThreeFingerTap))
-        threeFinger.numberOfTouchesRequired = 3
-        threeFinger.cancelsTouchesInView = true
-        webView.addGestureRecognizer(threeFinger)
-
-        // Haptic on every tap, without consuming the touch.
         let haptic = UITapGestureRecognizer(target: self, action: #selector(onPlainTap))
         haptic.numberOfTouchesRequired = 1
         haptic.cancelsTouchesInView = false
-        haptic.require(toFail: hold)
         webView.addGestureRecognizer(haptic)
     }
 
@@ -353,22 +342,29 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         tapHaptic.prepare()
     }
 
-    // Long press = skip. Driving stat.is_skip directly avoids the extra
-    // nextOrder() that the [skipstart]/[skipstop] tags would fire.
-    @objc private func onHold(_ gesture: UILongPressGestureRecognizer) {
-        switch gesture.state {
-        case .began:
-            firmHaptic.impactOccurred(intensity: 0.8)
-            run("try { TYRANO.kag.stat.is_auto = false; TYRANO.kag.stat.is_skip = true; } catch (e) {}")
-        case .ended, .cancelled, .failed:
-            run("try { TYRANO.kag.stat.is_skip = false; } catch (e) {}")
-        default:
-            break
-        }
+    // MARK: - Toolbar actions
+
+    // Driving stat.is_skip / stat.is_auto directly avoids the extra nextOrder()
+    // that the [skipstart] / [autostop] tags would fire.
+    @objc private func toggleSkip() {
+        firmHaptic.impactOccurred(intensity: 0.7)
+        let turningOn = !skipButton.isSelected
+        skipButton.isSelected = turningOn
+        if turningOn { autoButton.isSelected = false }
+        styleToggles()
+        run("try { TYRANO.kag.stat.is_auto = false; TYRANO.kag.stat.is_skip = \(turningOn); } catch (e) {}")
     }
 
-    // Two-finger tap = the game's own menu (save / load / config / backlog).
-    @objc private func onTwoFingerTap() {
+    @objc private func toggleAuto() {
+        firmHaptic.impactOccurred(intensity: 0.7)
+        let turningOn = !autoButton.isSelected
+        autoButton.isSelected = turningOn
+        if turningOn { skipButton.isSelected = false }
+        styleToggles()
+        run("try { TYRANO.kag.stat.is_skip = false; TYRANO.kag.stat.is_auto = \(turningOn); } catch (e) {}")
+    }
+
+    @objc private func openGameMenu() {
         firmHaptic.impactOccurred(intensity: 0.7)
         run("""
         try {
@@ -379,18 +375,37 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
           TYRANO.kag.menu.showMenu();
         } catch (e) {}
         """)
+        skipButton.isSelected = false
+        autoButton.isSelected = false
+        styleToggles()
     }
 
-    // Three-finger tap = auto-play toggle.
-    @objc private func onThreeFingerTap() {
-        firmHaptic.impactOccurred(intensity: 0.7)
-        run("""
-        try {
-          var s = TYRANO.kag.stat;
-          if (s.is_auto === true) { s.is_auto = false; }
-          else { s.is_auto = true; s.is_skip = false; }
-        } catch (e) {}
-        """)
+    /// The engine also flips these itself (a click cancels skip, autoClickStop
+    /// ends auto), so poll and keep the buttons honest.
+    private func startStateSync() {
+        stateTimer?.invalidate()
+        stateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.webView.evaluateJavaScript(
+                """
+                (function () {
+                  try {
+                    var s = TYRANO.kag.stat;
+                    return (s.is_skip === true ? '1' : '0') + (s.is_auto === true ? '1' : '0');
+                  } catch (e) { return '00'; }
+                })();
+                """
+            ) { [weak self] result, _ in
+                guard let self = self, let flags = result as? String, flags.count == 2 else { return }
+                let skip = flags.first == "1"
+                let auto = flags.last == "1"
+                if skip != self.skipButton.isSelected || auto != self.autoButton.isSelected {
+                    self.skipButton.isSelected = skip
+                    self.autoButton.isSelected = auto
+                    self.styleToggles()
+                }
+            }
+        }
     }
 
     // MARK: - Background audio
@@ -539,24 +554,65 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         diagView = container
         diagText = text
 
-        // A discreet toggle. The game is 3:2 in a 19.5:9 window, so there is
-        // ~143pt of black down each side -- putting the button there means it
-        // never covers the picture. Tap to open the panel, tap again to close.
-        let button = UIButton(type: .system)
-        let glyph = UIImage(systemName: "info.circle") ?? UIImage(systemName: "gear")
-        button.setImage(glyph, for: .normal)
-        button.tintColor = .white
-        button.alpha = 0
-        button.addTarget(self, action: #selector(toggleDiagnostics), for: .touchUpInside)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(button)          // added after the panel: stays on top
+        // Side toolbar. The game is 3:2 inside a 19.5:9 window, so there is
+        // ~143pt of black down each side -- the controls live there and never
+        // cover the picture. These replace the old hidden gestures.
+        let skip = makeToolButton(title: "快进", action: #selector(toggleSkip))
+        let auto = makeToolButton(title: "自动", action: #selector(toggleAuto))
+        let menu = makeToolButton(title: "菜单", action: #selector(openGameMenu))
+        let info = makeToolButton(title: "诊断", action: #selector(toggleDiagnostics))
+
+        let stack = UIStackView(arrangedSubviews: [skip, auto, menu, info])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.alignment = .fill
+        stack.alpha = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)           // added after the panel: stays on top
         NSLayoutConstraint.activate([
-            button.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            button.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            button.widthAnchor.constraint(equalToConstant: 44),
-            button.heightAnchor.constraint(equalToConstant: 44),
+            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -10),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            stack.widthAnchor.constraint(equalToConstant: 58),
         ])
-        diagButton = button
+
+        toolbar = stack
+        skipButton = skip
+        autoButton = auto
+        diagButton = info
+        styleToggles()
+    }
+
+    private func makeToolButton(title: String, action: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        button.layer.cornerRadius = 9
+        button.layer.borderWidth = 0.5
+        button.layer.borderColor = UIColor(white: 1, alpha: 0.18).cgColor
+        button.addTarget(self, action: action, for: .touchUpInside)
+        button.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        return button
+    }
+
+    /// Momentary buttons stay dim; toggles light up while they are on.
+    private func styleToggles() {
+        for button in [skipButton, autoButton] {
+            guard let button = button else { continue }
+            if button.isSelected {
+                button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
+                button.setTitleColor(.white, for: .normal)
+                button.layer.borderColor = UIColor.systemBlue.cgColor
+            } else {
+                button.backgroundColor = UIColor(white: 1, alpha: 0.10)
+                button.setTitleColor(UIColor(white: 1, alpha: 0.72), for: .normal)
+                button.layer.borderColor = UIColor(white: 1, alpha: 0.18).cgColor
+            }
+        }
+        for button in [diagButton] {
+            guard let button = button else { continue }
+            button.backgroundColor = UIColor(white: 1, alpha: 0.10)
+            button.setTitleColor(UIColor(white: 1, alpha: 0.72), for: .normal)
+        }
     }
 
     @objc private func toggleDiagnostics() {
@@ -565,7 +621,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         } else {
             diagView.isHidden = true
             stopDiagRefresh()
-            diagButton.alpha = 0.22
         }
     }
 
@@ -587,7 +642,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     @objc private func closeTapped() {
         diagView.isHidden = true
         stopDiagRefresh()
-        if let button = diagButton { button.alpha = 0.22 }
     }
 
     @objc private func reloadTapped() {
@@ -614,7 +668,6 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             diagText.setContentOffset(offset, animated: false)
         }
         diagView.isHidden = false
-        if let button = diagButton { button.alpha = 0.85 }
         startDiagRefresh()
         dismissSplash()
         NSLog("[SylvieGame] DIAG\n%@", body)
@@ -656,6 +709,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
 
         startReadyWatch()
         startErrorWatch()
+        startStateSync()
 
         // Periodic safety mirror of localStorage (the background hook catches
         // the normal case, this covers long sessions that never background).
