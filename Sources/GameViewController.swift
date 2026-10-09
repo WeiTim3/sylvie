@@ -24,6 +24,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
 
     private var diagView: UIView!
     private var diagText: UITextView!
+    private var diagButton: UIButton!
 
     // MARK: - Haptics
 
@@ -308,6 +309,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         }, completion: { _ in
             splash.isHidden = true
             splash.removeFromSuperview()
+            UIView.animate(withDuration: 0.6) { self.diagButton?.alpha = 0.22 }
         })
     }
 
@@ -530,6 +532,34 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
 
         diagView = container
         diagText = text
+
+        // A discreet toggle. The game is 3:2 in a 19.5:9 window, so there is
+        // ~143pt of black down each side -- putting the button there means it
+        // never covers the picture. Tap to open the panel, tap again to close.
+        let button = UIButton(type: .system)
+        let glyph = UIImage(systemName: "info.circle") ?? UIImage(systemName: "gear")
+        button.setImage(glyph, for: .normal)
+        button.tintColor = .white
+        button.alpha = 0
+        button.addTarget(self, action: #selector(toggleDiagnostics), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(button)          // added after the panel: stays on top
+        NSLayoutConstraint.activate([
+            button.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            button.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 44),
+            button.heightAnchor.constraint(equalToConstant: 44),
+        ])
+        diagButton = button
+    }
+
+    @objc private func toggleDiagnostics() {
+        if diagView.isHidden {
+            refreshDiagnostics()
+        } else {
+            diagView.isHidden = true
+            diagButton.alpha = 0.22
+        }
     }
 
     @objc private func closeTapped() {
@@ -554,6 +584,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     private func showDiagnostics(_ body: String) {
         diagText.text = body
         diagView.isHidden = false
+        if let button = diagButton { button.alpha = 0.85 }
         dismissSplash()
         NSLog("[SylvieGame] DIAG\n%@", body)
     }
@@ -608,6 +639,15 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     }
 
     private func runBootCheck() {
+        collectDiagnostics(forceShow: false)
+    }
+
+    /// Same probe, but always shown -- this is what the info button calls.
+    private func refreshDiagnostics() {
+        collectDiagnostics(forceShow: true)
+    }
+
+    private func collectDiagnostics(forceShow: Bool) {
         let js = """
         (function () {
           var out = {};
@@ -651,7 +691,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
 
         webView.evaluateJavaScript(js) { [weak self] result, error in
             guard let self = self else { return }
-            var report = "启动检查（12 秒）\n"
+            var report = (forceShow ? "诊断面板（手动打开）\n" : "启动检查（12 秒）\n")
             report += "服务地址: \(self.server.map { $0.baseURL.absoluteString } ?? "无")\n"
             report += "素材目录: \(self.gameRoot?.path ?? "?")\n\n"
             if let error = error {
@@ -666,7 +706,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             let healthy = raw.contains("\"tyrano\": true")
                 && !raw.contains("\"baseChildren\": 0")
                 && raw.contains("\"centred\": true")
-            if healthy {
+            if healthy && !forceShow {
                 NSLog("[SylvieGame] boot OK")
                 return
             }
