@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Loading TyranoScript</title>
+
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />  
+
+<link href="./tyrano/tyrano.css" rel="stylesheet" type="text/css"/>
+<link href="./tyrano/animate.css" rel="stylesheet" type="text/css"/>
+<link href="./tyrano/libs/jquery-ui.css" rel="stylesheet" type="text/css"/>
+
+<script type="text/javascript" src="./tyrano/libs/jquery-2.0.3.min.js"></script>
+<script type="text/javascript" src="./tyrano/libs/jquery-ui.min.js"></script>
+<script type="text/javascript" src="./tyrano/libs/jquery.a3d.js"></script>
+<script type="text/javascript" src="./tyrano/libs/jsrender.min.js"></script>
+
+<!-- 廃止予定 alertify.js -->
+<link href="./tyrano/libs/alertify/alertify.core.css" rel="stylesheet" type="text/css"/>
+<link href="./tyrano/libs/alertify/alertify.default.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="./tyrano/libs/alertify/alertify.min.js"></script>
+
+<!-- remodal -->
+<link rel="stylesheet" href="./tyrano/libs/remodal/remodal.css">
+<link rel="stylesheet" href="./tyrano/libs/remodal/remodal-default-theme.css">
+<script src="./tyrano/libs/remodal/remodal.js"></script>
+
+
+<script type="text/javascript" src="./tyrano/libs/html2canvas.js"></script>
+
+<script type="text/javascript" src="./data/system/KeyConfig.js"></script>
+
+<script type="text/javascript" src="./tyrano/lang.js" ></script>
+<script type="text/javascript" src="./tyrano/libs.js" ></script>
+
+<script type="text/javascript" src="./tyrano/tyrano.js" ></script>
+<script type="text/javascript" src="./tyrano/tyrano.base.js" ></script>
+
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.event.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.key_mouse.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.layer.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.menu.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.parser.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.rider.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.tag_audio.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.tag_camera.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.tag_ext.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.tag_system.js" ></script>
+<script type="text/javascript" src="./tyrano/plugins/kag/kag.tag.js" ></script>
+
+
+<link href="./tyrano/libs/textillate/assets/animate.css" rel="stylesheet">
+<script type="text/javascript" src="./tyrano/libs/textillate/assets/jquery.lettering.js"></script>
+<script type="text/javascript" src="./tyrano/libs/textillate/jquery.textillate.js"></script>
+<script type="text/javascript" src="./tyrano/libs/jquery.touchSwipe.min.js"></script>
+
+<script type="text/javascript" src="./tyrano/libs/lz-string.min.js"></script>
+
+<script type="text/javascript">
+function doScroll() { if (window.pageYOffset === 0) { window.scrollTo(0,1); } }  
+window.onload = function() { setTimeout(doScroll, 100); }  
+
+</script>  
+
+</head>
+
+<body onselectstart="return false" onContextmenu="return false" ontouchmove="event.preventDefault()" >
+
+<div id="tyrano_base" class="tyrano_base" style="overflow:hidden" unselectable="on" ondragstart="return false" ></div>
+
+
+<!--  First シナリオファイルに外部ファイルを利用したい場合は、こちらにシナリオファイルのURLを指定できます-->
+<!--
+<input type="hidden" id="first_scenario_file" value="http://test.com/tyrano/data/scenario/first.ks">
+-->
+
+<!-- モーダル用 -->
+<div class="remodal-bg" ></div>
+<div class="remodal" data-remodal-id="modal" data-remodal-options="closeOnEscape:false, closeOnOutsideClick:false">
+  <!--
+  <button data-remodal-action="close" class="remodal-close"></button>
+  -->
+  <h1 class="remodal_title"></h1>
+  <p class="remodal_txt">
+  </p>
+  <br>
+  <button data-remodal-action="cancel" class="remodal-cancel">Cancel</button>
+  <button data-remodal-action="confirm" class="remodal-confirm">OK</button>
+</div>
+
+
+
+
+
+
+
+
+<!-- ===== 跳过答题按钮（本移植版加入，不是原包内容） =====
+     只在答题环节出现；答题起止行从剧本里现算，改剧情也不会失准。 -->
+<style>
+#skip_quiz_btn{position:fixed;right:10px;top:10px;z-index:2147483000;display:none;
+  padding:9px 16px;border-radius:19px;background:rgba(0,0,0,.55);
+  border:1px solid rgba(255,255,255,.5);color:#fff;
+  font:15px/1 -apple-system,"PingFang SC","Hiragino Sans",sans-serif;
+  letter-spacing:1px;-webkit-user-select:none;user-select:none;
+  touch-action:manipulation;box-shadow:0 1px 6px rgba(0,0,0,.4)}
+#skip_quiz_btn:active{background:rgba(255,255,255,.3)}
+</style>
+<div id="skip_quiz_btn">跳过答题</div>
+<script>
+(function () {
+  var SCENARIO = 'intro/opening.ks';
+  var PASS_LABEL = '*tgcs';          // 答题全对后走的那一段
+  var btn = document.getElementById('skip_quiz_btn');
+  var range = null, scanned = false, shown = false, pending = 0;
+
+  function scan() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', './data/scenario/' + SCENARIO, true);
+    xhr.onload = function () {
+      try {
+        var lines = xhr.responseText.split('\n'), start = -1, end = lines.length;
+        for (var i = 0; i < lines.length; i++) {
+          var t = lines[i].replace(/\s/g, '');
+          if (start < 0 && t.indexOf('[buttontarget="*ok"') >= 0) start = i;
+          else if (start >= 0 && /^\*(tgcs|mtgcs)/.test(t)) { end = i; break; }
+        }
+        if (start >= 0) range = {start: start, end: end};
+      } catch (e) {}
+      scanned = true;
+    };
+    xhr.onerror = function () { scanned = true; };
+    try { xhr.send(); } catch (e) { scanned = true; }
+  }
+
+  function inQuiz() {
+    try {
+      var k = window.TYRANO && TYRANO.kag;
+      if (!k || !k.stat || k.stat.current_scenario !== SCENARIO) return false;
+      if (!range) return scanned && k.stat.current_line > 70;   // 扫不出来时退一步判断
+      return k.stat.current_line >= range.start && k.stat.current_line < range.end;
+    } catch (e) { return false; }
+  }
+
+  function sync() {
+    if (!scanned) scan();
+    var want = inQuiz() && pending === 0;
+    if (want !== shown) { shown = want; btn.style.display = want ? 'block' : 'none'; }
+  }
+  setInterval(sync, 250);
+
+  function inQuizNow() {
+    return inQuiz();
+  }
+
+  // 引擎的 nextOrder() 在文字还在逐字显示时会直接 return false（is_adding_text），
+  // 所以这一下大概率被吞掉 —— 等它打完再跳，不必让用户重点一次。
+  function doJump(tries) {
+    try {
+      var k = TYRANO.kag;
+      if (k.stat.is_adding_text) {
+        if (tries > 0) setTimeout(function () { doJump(tries - 1); }, 250);
+        else pending = 0;
+        return;
+      }
+      k.ftag.nextOrderWithLabel(PASS_LABEL, SCENARIO);
+      setTimeout(function () {
+        try {
+          if (TYRANO.kag.stat.current_scenario === SCENARIO && inQuizNow()) {
+            if (tries > 0) doJump(tries - 1);
+            else pending = 0;
+          } else {
+            pending = 0;                       // 跳过去了
+          }
+        } catch (e) { pending = 0; }
+      }, 300);
+    } catch (e) { pending = 0; }
+  }
+
+  function skip(ev) {
+    // 引擎把点击绑在 document 上，不拦住的话这一下会同时被当成"推进剧情"
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!inQuiz()) return;
+    pending++;
+    shown = false;
+    btn.style.display = 'none';
+    try {
+      // 这就是引擎自己"点一下把这句话显示完"用的开关，打开它当前这句会立刻打完，
+      // 否则 nextOrder() 会因为 is_adding_text 拒绝跳转
+      if (TYRANO.kag.stat.is_adding_text) TYRANO.kag.stat.is_click_text = true;
+    } catch (e) {}
+    doJump(20);
+  }
+  ['click', 'touchstart', 'touchend'].forEach(function (type) {
+    btn.addEventListener(type, skip, {passive: false});
+  });
+})();
+</script>
+</body>
+</html>

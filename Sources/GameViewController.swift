@@ -27,13 +27,21 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         start()
     }
 
+    /// Where the game lives.
+    ///
+    /// The bundled copy wins when there is one -- and that order is deliberate.
+    /// The self-contained IPA ships the game inside the app, so whatever
+    /// happens to be sitting in Documents from an older attempt must not be
+    /// able to shadow it; that has been a real source of "still the old
+    /// version" confusion. The slim IPA has no bundled www and falls through
+    /// to Documents, which keeps the drop-in workflow working.
     private var gameFolder: URL? {
         var candidates: [URL] = []
-        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            candidates.append(docs.appendingPathComponent("www"))
-        }
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent("www") {
             candidates.append(bundled)
+        }
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            candidates.append(docs.appendingPathComponent("www"))
         }
         return candidates.first {
             FileManager.default.fileExists(atPath: $0.appendingPathComponent("index.html").path)

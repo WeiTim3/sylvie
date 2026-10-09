@@ -21,6 +21,12 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+      # Folder reference: the whole tree lands in the bundle as
+      # SylvieGame.app/patches/**, where LocalServer serves it in preference
+      # to the same relative path in the game folder.  Lets a fix ship with a
+      # 1.6 MB app update instead of re-copying 1.4 GB of game data.
+      - path: Content/patches
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.local.sylviegame

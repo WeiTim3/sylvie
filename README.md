@@ -159,12 +159,22 @@ WebKit 就没法 seek `<video>`）：
 python3 tools/serve.py 8765 apk/assets        # 浏览器开 http://127.0.0.1:8765/index.html
 ```
 
-### 一个兜底机制：内容覆盖
+### 兜底机制：内容覆盖（现在里面有东西了）
 
-`LocalServer` 会在服务文件前先看一眼 App 包里的 `patches/<相对路径>`，命中就优先返回它。
-**当前包里没有任何覆盖文件，所以这条路是空的** —— 这是刻意留的逃生口：
-以后若要改剧情，把改好的文件按同样相对路径放进工程的 `Content/patches/`，
-推一次代码（1.6 MB 的 App）就能生效，**不用让你重新复制 1.5 GB 的 www**。
+`LocalServer` 在服务文件之前先看 App 包里的 `patches/<相对路径>`，命中就优先返回它。
+`Content/patches/` 以 folder reference 进工程，整棵树原样拷成 `SylvieGame.app/patches/`。
+
+**现在里面放的是那几个必须的修正**（`index.html`、`Config.tjs`、`tyrano.base.js`、
+`kag.menu.js`、`kag.tag_audio.js`、`kag.tag_ext.js`）—— 这是为了防止一件事：
+Documents 里放着一份旧的 www 时，它会把包里的新版整个盖掉，看着像"改了没用"。
+有了覆盖层，这几个文件**不管 Documents 里是什么，都以包里的为准**。
+
+素材查找顺序也调整了：
+
+```
+1. <App Bundle>/www     ← 优先（自包含的 IPA 用这条；不会再被 Documents 里的旧数据盖住）
+2. <App Documents>/www  ← 只有包里没带素材时才用（轻量 IPA 走这条）
+```
 
 ## 操作
 
