@@ -19,6 +19,12 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     private var backupTimer: Timer?
     private var errorTimer: Timer?
     private var lastSeriousErrors = -1
+    private var diagTimer: Timer?
+    private static let clockFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 
     // MARK: - Diagnostics
 
@@ -558,16 +564,35 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
             refreshDiagnostics()
         } else {
             diagView.isHidden = true
+            stopDiagRefresh()
             diagButton.alpha = 0.22
         }
     }
 
+    /// While the panel is on screen, re-run the probe once a second so the
+    /// numbers track what the game is actually doing.
+    private func startDiagRefresh() {
+        guard diagTimer == nil else { return }
+        diagTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self, !self.diagView.isHidden else { return }
+            self.collectDiagnostics(forceShow: true)
+        }
+    }
+
+    private func stopDiagRefresh() {
+        diagTimer?.invalidate()
+        diagTimer = nil
+    }
+
     @objc private func closeTapped() {
         diagView.isHidden = true
+        stopDiagRefresh()
+        if let button = diagButton { button.alpha = 0.22 }
     }
 
     @objc private func reloadTapped() {
         diagView.isHidden = true
+        stopDiagRefresh()
         splashDismissed = false
         setUpSplashAgainIfNeeded()
         startGame()
@@ -582,9 +607,15 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
     }
 
     private func showDiagnostics(_ body: String) {
-        diagText.text = body
+        // Keep whatever the reader has scrolled to while we refresh underneath.
+        let offset = diagText.contentOffset
+        if diagText.text != body {
+            diagText.text = body
+            diagText.setContentOffset(offset, animated: false)
+        }
         diagView.isHidden = false
         if let button = diagButton { button.alpha = 0.85 }
+        startDiagRefresh()
         dismissSplash()
         NSLog("[SylvieGame] DIAG\n%@", body)
     }
@@ -692,6 +723,7 @@ final class GameViewController: UIViewController, WKNavigationDelegate, WKUIDele
         webView.evaluateJavaScript(js) { [weak self] result, error in
             guard let self = self else { return }
             var report = (forceShow ? "诊断面板（手动打开）\n" : "启动检查（12 秒）\n")
+            report += "刷新时间: \(Self.clockFormatter.string(from: Date()))\n"
             report += "服务地址: \(self.server.map { $0.baseURL.absoluteString } ?? "无")\n"
             report += "素材目录: \(self.gameRoot?.path ?? "?")\n\n"
             if let error = error {
