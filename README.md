@@ -72,8 +72,46 @@ if (that.kag.layer.layer_event.css("display") == "none" && is_strong_stop != tru
 `tools/patch_www.py` 的 `install_load_guard()` 把每处都包住，失败时执行
 `__sylvie_load_fail()`：清掉 `is_adding_text` / `is_click_text` / `is_strong_stop` / `is_stop`
 这四个只要残留就会让点击失效的标志 → `showEventLayer()` → 弹一句话说明 → 回标题画面
-（用游戏自己的 `sys/title_screen.ks`）。另有一个 `__sylvie_watch_load()` 看门狗：
-读档后 2 秒内事件层还是关着（媒体没起来、某步悄悄失败）就强制恢复交互。
+（用游戏自己的 `sys/title_screen.ks`）。另有一个 `__sylvie_watch_load()` 看门狗：读档后 2 秒内事件层还是关着（媒体没起来）就强制恢复交互。
+
+### 4. 引擎出错不再「无声地停住」
+
+上面那条只是治症状，真正的病根是引擎的错误处理：
+
+```js
+error: function (str) { if (this.kag.config["debugMenu.visible"] == "true") { ...显示... } }
+```
+
+`Config.tjs` 里 `debugMenu.visible = false`，于是 **`kag.error()` 什么都不做**；
+而 `nextOrder()` 捕获到 tag 抛出的异常后就调它 —— 结果是**执行链静静地停在半路**：
+画面还在（读档还原的图层）、BGM 还在放、背景影片还在动，但**谁都动不了，也没有任何提示**。
+
+实际踩到的那一步：`make.ks` 链条里的 `[save_dress]` ——
+
+```
+[eval exp="f.sav_dress_t[0]=f.dress_t, ... ,f.sav_hair[0]=f.hair_style, ..." ]
+```
+
+读档后 `f.*` 变量不全（存档来自别的版本时尤其明显），`f.sav_hair` 不存在 →
+`undefined[0]=...` 抛 TypeError → 整局停住。修法两条：
+
+- **`[eval]` 抛异常不再中断流程**：先试着把表达式里出现、但还不存在的 `f.xxx`
+  补成空数组再算一次（`__sylvie_eval_retry`），补不上就记一条 console 错误继续走
+- **`kag.error()` 真正报错**：始终写 console，并在 debug 关闭时**弹一次**说明
+  （同一条消息只弹一次），这样以后再出问题至少能看见，不会又变成「卡住没反应」
+
+### 5. 读档后屏幕上的按钮不再是哑巴
+
+`[button]` 的点击处理里有：
+
+```js
+if (that.kag.stat.is_strong_stop != true && _pm.fix == "false") return false;
+```
+
+而 `[s]`（游戏里「等玩家点按钮」的那个标签）才会把 `is_strong_stop` 设成 true；
+读档会把 `is_strong_stop` 清掉、又从存档位置的下一条继续跑，**跳过了那个 `[s]`** ——
+于是还原出来的菜单按钮全部失效。`__sylvie_restore_choice()` 在读档后检查：
+屏幕上还有 `.event-setting-element` 就把它恢复成 true。
 
 ### 3. 界面：跳过答题按钮
 

@@ -52,6 +52,33 @@ EDITS = [
         "音频 play 事件加 1.5s 兜底（引擎只在 play 事件里推进剧情，媒体失败=永久卡死）",
     ),
     (
+        "tyrano/plugins/kag/kag.tag_system.js",
+        'tyrano.plugin.kag.tag.eval={vital:["exp"],pm:{exp:"",next:"true"},'
+        'start:function(pm){this.kag.evalScript(pm.exp);if(pm.next=="true")this.kag.ftag.nextOrder()}};',
+        'tyrano.plugin.kag.tag.eval={vital:["exp"],pm:{exp:"",next:"true"},start:function(pm){'
+        'try{this.kag.evalScript(pm.exp)}catch(e){'
+        'if(!(window.__sylvie_eval_retry&&window.__sylvie_eval_retry(pm.exp,e))){'
+        'try{console.error("[sylvie] eval 失败（跳过继续）:",pm.exp,e)}catch(_){}}}'
+        'if(pm.next=="true")this.kag.ftag.nextOrder()}};',
+        "[eval] 抛异常不再让整个流程停住（读档后变量不全是常见触发点）",
+    ),
+    (
+        "tyrano/plugins/kag/kag.js",
+        'error:function(str){if(this.kag.config["debugMenu.visible"]==\n"true"){'
+        'var current_storage=this.kag.stat.current_scenario;'
+        'var line=parseInt(this.kag.stat.current_line)+1;'
+        'var err="Error:"+current_storage+":"+line+"\\u884c\\u76ee:"+str;$.error_message(err)}},',
+        'error:function(str){var current_storage=this.kag.stat.current_scenario;'
+        'var line=parseInt(this.kag.stat.current_line)+1;'
+        'var err="Error:"+current_storage+":"+line+"\\u884c\\u76ee:"+str;'
+        'try{console.error("[tyrano]",err)}catch(_){}try{'
+        'if(this.kag.config["debugMenu.visible"]=="true"){$.error_message(err)}'
+        'else{if(!window.__sylvie_errors)window.__sylvie_errors={};'
+        'if(!window.__sylvie_errors[err]){window.__sylvie_errors[err]=1;'
+        'alert("游戏报错（已跳过继续）：\\n\\n"+err)}}}catch(_){}},',
+        "引擎报错不再无声无息（debug 关着时原来什么都不做，出错了只表现为卡住）",
+    ),
+    (
         "data/system/Config.tjs",
         ";configSave     = file",
         ";configSave     = webstorage_compress",
@@ -224,6 +251,56 @@ SKIP_BUTTON = r'''
 # 这里把每处都包住，失败就走 __sylvie_load_fail：恢复交互 + 回标题 + 说明原因。
 # --------------------------------------------------------------------------
 
+LOAD_HELPERS_JS = r"""
+
+/* ===== 读档 / 变量兜底（本移植版加入，不是原包内容）===== */
+
+/* 表达式里出现 f.xxx[i] = ... 而 f.xxx 还不存在时（读档后变量不全、或者存档来自
+   别的版本，这个特别常见），eval 会抛 "undefined is not an object"，然后整段
+   流程就停在那儿 —— 画面还在、音乐还在，但谁都动不了。
+   这里把缺的容器补成空数组再试一次；补上了就当作成功。 */
+window.__sylvie_eval_retry = function (exp, err) {
+  try {
+    var k = TYRANO.kag;
+    var f = k.stat.f;
+    if (!f) return false;
+    var re = /f\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\[/g, m, made = false, names = [];
+    while ((m = re.exec(exp)) !== null) {
+      if (names.indexOf(m[1]) < 0) names.push(m[1]);
+    }
+    for (var i = 0; i < names.length; i++) {
+      if (f[names[i]] === undefined || f[names[i]] === null) { f[names[i]] = []; made = true; }
+    }
+    if (!made) return false;
+    k.evalScript(exp);
+    return true;
+  } catch (e2) {
+    return false;
+  }
+};
+
+/* 读档后如果屏幕上还留着选项/菜单按钮，说明游戏在等玩家点按钮，但读档会把
+   is_strong_stop 清掉，而 [button] 的点击处理里写着
+       if (is_strong_stop != true && fix == "false") return false;
+   —— 于是屏幕上的按钮全变哑巴。这里把它恢复回来。 */
+window.__sylvie_restore_choice = function () {
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    var k = window.TYRANO && TYRANO.kag;
+    if (!k) { clearInterval(timer); return; }
+    var n = document.querySelectorAll(".event-setting-element").length;
+    if (n > 0 && k.stat.is_adding_text != true && k.stat.is_strong_stop != true) {
+      try { k.stat.is_strong_stop = true; } catch (e) {}
+      clearInterval(timer);
+      return;
+    }
+    if (n > 0 && k.stat.is_strong_stop == true) { clearInterval(timer); return; }
+    if (tries > 20) clearInterval(timer);
+  }, 500);
+};
+"""
+
 LOAD_GUARD_JS = r"""
 
 /* ===== 读档兜底（本移植版加入，不是原包内容）=====
@@ -313,7 +390,8 @@ LOAD_EDITS = [
         'this.kag.clearTmpVariable();\nthis.kag.ftag.nextOrderWithIndex(data.current_order_index,'
         'data.stat.current_scenario,true,insert,"yes")},',
         'this.kag.clearTmpVariable();try{this.kag.ftag.nextOrderWithIndex(data.current_order_index,'
-        'data.stat.current_scenario,true,insert,"yes")}catch(e){window.__sylvie_load_fail(e)}},',
+        'data.stat.current_scenario,true,insert,"yes")}catch(e){window.__sylvie_load_fail(e)}'
+        'if(window.__sylvie_restore_choice)window.__sylvie_restore_choice()},',
         "索引/剧本文件对不上时不再静默卡死",
     ),
 ]
@@ -325,17 +403,23 @@ def install_load_guard():
     path = os.path.join(WWW, rel)
     with open(path, encoding="utf-8", errors="surrogateescape") as fh:
         text = fh.read()
-    if "__sylvie_load_fail" in text:
+    if "__sylvie_restore_choice" in text:
         print("  [已是最新] 读档兜底")
         return 0
+    # 旧版本先摘掉（追加过的整块），再重新追加，脚本升级不用手工处理
+    if "/* ===== 读档兜底" in text:
+        text = text.split("/* ===== 读档兜底")[0].rstrip("\n") + "\n"
     changed = 0
     for old, new, desc in LOAD_EDITS:
+        if new.split("(")[0][:40] and new in text:
+            print(f"  [已是最新] {desc}")
+            continue
         if old not in text:
             print(f"  [警告] {rel}: 找不到目标片段 —— {desc}")
             continue
         text = text.replace(old, new, 1)
         changed += 1
-    text = text.rstrip("\n") + "\n" + LOAD_GUARD_JS
+    text = text.rstrip("\n") + "\n" + LOAD_HELPERS_JS + LOAD_GUARD_JS
     with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
         fh.write(text)
     print(f"  [已加] 读档兜底（{changed}/{len(LOAD_EDITS)} 处改动 + 兜底函数）")
